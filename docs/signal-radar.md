@@ -159,3 +159,54 @@ The following are out of MVP scope and deferred to future releases:
 | Score cap | 150 |
 | Auto-disable | After 3 consecutive failures |
 | Rate-limit pause | 4 hours |
+## Endpoint verification status
+
+The Voyager API endpoint paths in `linkedin/api/posts.py` are best-effort
+based on patterns from existing OpenOutreach calls and community reverse
+engineering. They are NOT verified. Status as of 2026-04-30:
+
+| Wrapper | Confidence | Status |
+|---|---|---|
+| `list_own_profile_posts` | UNCERTAIN | unverified |
+| `list_profile_posts` | LIKELY | unverified |
+| `list_company_posts` | UNCERTAIN | unverified |
+| `list_post_reactors` | GUESS | unverified |
+| `list_post_comments` | GUESS | unverified |
+| `list_post_reposts` | GUESS | unverified |
+
+A first server-side probe attempt (2026-04-30, MindPalace) produced no
+verifications: the probe script crashed on Django module import before
+any browser or LinkedIn API call. Cookies were exported from the
+operator's browser, written to MindPalace at chmod 600, then fully
+deleted afterward (no residue, confirmed by grep).
+
+### Recommended next probe: operator-local
+
+Run the probe from the operator's own workstation, not from MindPalace:
+
+1. Clone the fork:
+   `git clone https://github.com/JJValentin/OpenOutreach.git`
+2. Check out: `git checkout feature/signal-radar`
+3. Set up venv with Python 3.12 and `requirements/base.txt + local.txt`.
+4. `playwright install chromium` (no `--with-deps` needed on a normal
+   workstation that already has Chrome libraries).
+5. Use the existing OpenOutreach onboarding flow OR construct a minimal
+   `LinkedInProfile` pre-populated with cookies exported from your
+   logged-in browser (Playwright `storage_state` JSON format).
+6. Open `manage.py shell` and call each wrapper one-by-one with
+   ~30s gaps between. Capture URL, status, response shape per wrapper.
+7. Update `linkedin/api/posts.py`: remove `# TODO: verify endpoint path`
+   markers from verified wrappers; add `EndpointNotVerified` raises to
+   wrappers that returned 4xx/5xx; commit; push.
+8. If any wrapper still 404s, open one of your own LinkedIn posts in a
+   browser, open DevTools → Network → filter `voyager`, click
+   "see who reacted / commented / reposted", and capture the actual
+   request URL. Update the wrapper accordingly. Re-probe.
+
+### Why local instead of server?
+
+- Your browser already has the authenticated session — no cookie export
+  to a remote box.
+- Your normal IP avoids "unusual login location" flags.
+- You can run headed Playwright and observe what LinkedIn returns.
+- No SSH friction; iterative debugging is faster.
