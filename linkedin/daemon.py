@@ -28,6 +28,9 @@ from linkedin.models import Task
 from linkedin.tasks.check_pending import handle_check_pending
 from linkedin.tasks.connect import handle_connect
 from linkedin.tasks.follow_up import handle_follow_up
+from linkedin.tasks.poll_signals import handle_poll_own_posts, handle_poll_watched_source
+from linkedin.tasks.recompute_signal_scores import handle_recompute_signal_scores
+from linkedin.tasks.inject_signal_profiles import handle_inject_signal_profiles
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,10 @@ _HANDLERS = {
     Task.TaskType.CONNECT: handle_connect,
     Task.TaskType.CHECK_PENDING: handle_check_pending,
     Task.TaskType.FOLLOW_UP: handle_follow_up,
+    Task.TaskType.POLL_WATCHED_SOURCE: handle_poll_watched_source,
+    Task.TaskType.POLL_OWN_POSTS: handle_poll_own_posts,
+    Task.TaskType.INJECT_SIGNAL_PROFILES: handle_inject_signal_profiles,
+    Task.TaskType.RECOMPUTE_SIGNAL_SCORES: handle_recompute_signal_scores,
 }
 
 # Hard ceilings per task type — if a handler doesn't return inside this
@@ -44,6 +51,8 @@ TASK_WATCHDOG_SECONDS = {
     Task.TaskType.CONNECT: 10 * 60,
     Task.TaskType.CHECK_PENDING: 5 * 60,
     Task.TaskType.FOLLOW_UP: 10 * 60,
+    Task.TaskType.POLL_WATCHED_SOURCE: 15 * 60,
+    Task.TaskType.POLL_OWN_POSTS: 15 * 60,
 }
 
 HEARTBEAT_INTERVAL = 300  # 5 minutes

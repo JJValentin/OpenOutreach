@@ -44,6 +44,9 @@ class Deal(models.Model):
     backoff_hours = models.IntegerField(default=0)
     profile_summary = models.JSONField(null=True, blank=True, default=None)
     chat_summary = models.JSONField(null=True, blank=True, default=None)
+    signal_metadata = models.JSONField(default=dict, blank=True)
+    composite_signal_score = models.PositiveIntegerField(default=0)
+    signal_sourced = models.BooleanField(default=False)
     creation_date = models.DateTimeField(default=timezone.now)
     update_date = models.DateTimeField(auto_now=True)
 

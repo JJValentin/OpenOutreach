@@ -108,6 +108,32 @@ def enqueue_check_pending(
     return delay_hours
 
 
+
+
+def enqueue_poll_watched_source(
+    source_id: int, delay_seconds: float = 0, dedupe: bool = True,
+) -> bool:
+    """Enqueue a poll_watched_source task for the given WatchedSource id."""
+    return _insert_task(
+        task_type=Task.TaskType.POLL_WATCHED_SOURCE,
+        payload={"watched_source_id": source_id},
+        delay_seconds=delay_seconds,
+        dedup_keys=["watched_source_id"] if dedupe else None,
+    )
+
+
+
+
+def enqueue_poll_own_posts(
+    campaign_id: int, delay_seconds: float = 0, dedupe: bool = True,
+) -> bool:
+    " Enqueue a poll_own_posts task for the given campaign."
+    return _insert_task(
+        task_type=Task.TaskType.POLL_OWN_POSTS,
+        payload={"campaign_id": campaign_id},
+        delay_seconds=delay_seconds,
+        dedup_keys=["campaign_id"] if dedupe else None,
+    )
 def enqueue_follow_up(
     campaign_id: int,
     public_id: str,

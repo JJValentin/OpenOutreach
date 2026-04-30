@@ -1,9 +1,14 @@
-# linkedin/admin.py
-from django.contrib import admin
+from django.contrib import admin, messages
+from django import forms
+from django.http import HttpResponse
+import csv
 
 from chat.models import ChatMessage
 
-from linkedin.models import ActionLog, Campaign, LinkedInProfile, SearchKeyword, SiteConfig, Task
+from linkedin.models import ActionLog, Campaign, LinkedInProfile, SearchKeyword, Signal, SignalRadarState, SiteConfig, Task, WatchedSource
+from linkedin.signals.urls import normalize_watched_source_identifier, WatchedSourceKind
+from linkedin.conf import SIGNAL_RATE_LIMIT_PAUSE_HOURS
+from linkedin.tasks.scheduler import enqueue_poll_watched_source
 
 
 @admin.register(SiteConfig)
@@ -64,3 +69,132 @@ class ChatMessageAdmin(admin.ModelAdmin):
     raw_id_fields = ("owner", "answer_to", "topic")
     date_hierarchy = "creation_date"
     readonly_fields = ("content_type", "object_id", "content", "owner", "creation_date")
+
+
+class WatchedSourceForm(forms.ModelForm):
+    def clean_identifier(self):
+        identifier = self.cleaned_data.get("identifier")
+        kind_value = self.cleaned_data.get("kind")
+        if identifier and kind_value:
+            # kind_value may be a WatchedSourceKind StrEnum or a string
+            if isinstance(kind_value, str):
+                # Map string to WatchedSourceKind
+                kind_str_map = {
+                    "own_profile": WatchedSourceKind.OWN_PROFILE,
+                    "competitor_company": WatchedSourceKind.COMPETITOR_COMPANY,
+                    "influencer_profile": WatchedSourceKind.INFLUENCER_PROFILE,
+                }
+                kind = kind_str_map.get(kind_value)
+                if kind is None:
+                    raise ValueError(f"Unknown kind value: {kind_value}")
+            else:
+                kind = kind_value
+            return normalize_watched_source_identifier(identifier, kind)
+        return identifier
+
+    class Meta:
+        model = WatchedSource
+        fields = "__all__"
+
+
+@admin.register(WatchedSource)
+class WatchedSourceAdmin(admin.ModelAdmin):
+    form = WatchedSourceForm
+    list_display = (
+        "campaign", "kind", "display_name", "identifier",
+        "is_active", "cadence_minutes", "last_poll_at", "consecutive_failures",
+    )
+    list_filter = ("kind", "is_active", "campaign")
+    search_fields = ("display_name", "identifier")
+
+    actions = ["enable_selected_sources", "disable_selected_sources", "reset_failure_count", "poll_now"]
+
+    @admin.action(description="Enable selected sources")
+    def enable_selected_sources(self, request, queryset):
+        queryset.update(is_active=True)
+
+    @admin.action(description="Disable selected sources")
+    def disable_selected_sources(self, request, queryset):
+        queryset.update(is_active=False)
+
+    @admin.action(description="Reset failure count")
+    def reset_failure_count(self, request, queryset):
+        queryset.update(consecutive_failures=0, last_error="")
+
+    @admin.action(description="Poll selected sources now")
+    def poll_now(self, request, queryset):
+        for source in queryset:
+            enqueue_poll_watched_source(source.id)
+
+    def changelist_view(self, request, extra_context=None):
+        response = super().changelist_view(request, extra_context)
+        if hasattr(response, 'context_data') and 'cl' in response.context_data:
+            queryset = response.context_data['cl'].queryset
+            unhealthy = queryset.filter(consecutive_failures__gte=1)
+            for source in unhealthy:
+                messages.warning(
+                    request,
+                    f"Source {source.display_name} has {source.consecutive_failures} consecutive failures. Last error: {source.last_error}"
+                )
+        return response
+
+
+@admin.register(Signal)
+class SignalAdmin(admin.ModelAdmin):
+    list_display = (
+        "profile_urn", "kind", "engagement_type", "score",
+        "watched_source", "created_at", "post_excerpt",
+    )
+    list_filter = ("kind", "engagement_type", "watched_source__campaign")
+    search_fields = ("profile_urn", "watched_source__display_name", "post_urn")
+    date_hierarchy = "created_at"
+    readonly_fields = (
+        "profile_urn", "company_urn", "watched_source", "kind", "engagement_type",
+        "post_urn", "post_excerpt", "post_author_urn", "post_published_at",
+        "payload_json", "score", "created_at",
+    )
+    actions = ["export_signals_csv"]
+
+    @admin.action(description="Export selected signals as CSV")
+    def export_signals_csv(self, request, queryset):
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = "attachment; filename=signals.csv"
+
+        writer = csv.writer(response)
+        writer.writerow([
+            "profile_urn", "post_urn", "engagement_type", "score",
+            "kind", "source_kind", "source_name", "created_at",
+        ])
+        for signal in queryset.select_related("watched_source"):
+            writer.writerow([
+                signal.profile_urn,
+                signal.post_urn,
+                signal.engagement_type,
+                signal.score,
+                signal.kind,
+                signal.watched_source.kind,
+                signal.watched_source.display_name,
+                signal.created_at.isoformat(),
+            ])
+        return response
+
+
+@admin.register(SignalRadarState)
+class SignalRadarStateAdmin(admin.ModelAdmin):
+    list_display = ("paused_until",)
+
+    actions = ["pause_polling_globally", "resume_polling_globally"]
+
+    @admin.action(description="Pause Signal Radar globally for 4 hours")
+    def pause_polling_globally(self, request, queryset):
+        from django.utils import timezone
+        from datetime import timedelta
+        state = SignalRadarState.load()
+        state.paused_until = timezone.now() + timedelta(hours=SIGNAL_RATE_LIMIT_PAUSE_HOURS)
+        state.save()
+
+    @admin.action(description="Resume Signal Radar globally")
+    def resume_polling_globally(self, request, queryset):
+        state = SignalRadarState.load()
+        state.paused_until = None
+        state.save()

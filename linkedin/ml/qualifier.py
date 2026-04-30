@@ -10,13 +10,13 @@ import numpy as np
 from pydantic import BaseModel, Field
 from scipy.stats import norm
 
-from linkedin.conf import CAMPAIGN_CONFIG, PROMPTS_DIR
+from linkedin.conf import CAMPAIGN_CONFIG, PROMPTS_DIR, SIGNAL_MAX_ACQUISITION_BONUS
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Qualifier protocol — shared interface for BayesianQualifier & KitQualifier
+# Qualifier protocol -- shared interface for BayesianQualifier & KitQualifier
 # ---------------------------------------------------------------------------
 
 @runtime_checkable
@@ -96,7 +96,7 @@ def _prob_above_half(mean, std):
 def _gpr_predict(pipe, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Transform through all steps except GPR, then predict with return_std.
 
-    Used by BayesianQualifier for BALD, predict_probs, and predict —
+    Used by BayesianQualifier for BALD, predict_probs, and predict --
     operations that need the posterior std.  Ranking uses the simpler
     ``pipeline.predict(X)`` (mean only) instead.
     """
@@ -129,10 +129,12 @@ def _load_profile_embeddings(profiles: list, session, *, skip_missing: bool = Fa
     return result
 
 
-def _rank_by_score(profiles: list, pipeline, session, *, skip_missing: bool = False) -> list:
+def _rank_by_score(profiles: list, pipeline, session, *, skip_missing: bool = False, signal_bonuses: dict | None = None) -> list:
     """Rank profiles by raw pipeline.predict() score (descending).
 
-    Works with any sklearn-compatible pipeline — no GPR-specific logic.
+    Works with any sklearn-compatible pipeline -- no GPR-specific logic.
+    If ``signal_bonuses`` is provided (lead_id -> float), adds the bonus
+    to the score before sorting.
     """
     scored = _load_profile_embeddings(profiles, session, skip_missing=skip_missing)
     if not scored:
@@ -140,6 +142,12 @@ def _rank_by_score(profiles: list, pipeline, session, *, skip_missing: bool = Fa
 
     X = np.array([emb for _, emb in scored], dtype=np.float64)
     scores = pipeline.predict(X)
+
+    if signal_bonuses is not None:
+        for i, (profile, _) in enumerate(scored):
+            lead_id = profile.get("lead_id")
+            if lead_id is not None:
+                scores[i] += signal_bonuses.get(lead_id, 0.0)
 
     ranked = sorted(zip(scores, [p for p, _ in scored]), key=lambda t: t[0], reverse=True)
     return [p for _, p in ranked]
@@ -199,7 +207,7 @@ class BayesianQualifier:
 
     @property
     def pipeline(self):
-        """The fitted sklearn Pipeline — serializable via joblib."""
+        """The fitted sklearn Pipeline -- serializable via joblib."""
         self._fit_if_needed()
         return self._pipeline
 
@@ -283,8 +291,8 @@ class BayesianQualifier:
         keep.sort()
 
         logger.debug(
-            "Balancing training set: %d → %d (kept all %d minority, "
-            "subsampled %d → %d majority)",
+            "Balancing training set: %d -> %d (kept all %d minority, "
+            "subsampled %d -> %d majority)",
             len(y), len(keep), n_min, n_max, cap,
         )
         return X[keep], y[keep]
@@ -303,7 +311,7 @@ class BayesianQualifier:
         logger.debug("Pipeline saved to DB for campaign %s", self._campaign)
 
     # ------------------------------------------------------------------
-    # Prediction  (needs posterior std — uses _gpr_predict)
+    # Prediction  (needs posterior std -- uses _gpr_predict)
     # ------------------------------------------------------------------
 
     def predict(self, embedding: np.ndarray) -> tuple[float, float, float] | None:
@@ -329,7 +337,7 @@ class BayesianQualifier:
 
         BALD = H(E[p]) - E[H(p)], computed by MC-sampling from the
         exact GP posterior f ~ N(mean, std) with a probit link
-        p = Φ(f - 0.5).  Higher BALD = model disagrees with itself
+        p = Phi(f - 0.5).  Higher BALD = model disagrees with itself
         most = most informative to query.
 
         Returns None when the model cannot be fitted yet.
@@ -344,7 +352,7 @@ class BayesianQualifier:
             f_mean[np.newaxis, :]
             + f_std[np.newaxis, :] * self._rng.randn(self._n_mc_samples, len(f_mean))
         )
-        # Probit link: each sample gives a smooth probability via Φ(f - 0.5)
+        # Probit link: each sample gives a smooth probability via Phi(f - 0.5)
         p_samples = norm.cdf(f_samples - 0.5)
 
         p_pred = p_samples.mean(axis=0)
@@ -389,7 +397,7 @@ class BayesianQualifier:
         """Check if the unlabeled pool has any promising candidates (P > 0.5).
 
         Returns None on cold start (model not fitted), True/False otherwise.
-        Only checks for positive-looking profiles — searching for low-P
+        Only checks for positive-looking profiles -- searching for low-P
         profiles (explore mode) would be wasteful since you can just qualify
         from the existing pool.
         """
@@ -399,7 +407,7 @@ class BayesianQualifier:
         return bool(np.any(probs > 0.5))
 
     # ------------------------------------------------------------------
-    # Ranking & explain  (raw GP mean — no _prob_above_half)
+    # Ranking & explain  (raw GP mean -- no _prob_above_half)
     # ------------------------------------------------------------------
 
     def rank_profiles(self, profiles: list, session) -> list:
@@ -410,9 +418,20 @@ class BayesianQualifier:
         if not profiles:
             return []
         if not self._fit_if_needed():
-            logger.debug("rank_profiles: GPR not fitted (%d obs) — returning empty", self.n_obs)
+            logger.debug("rank_profiles: GPR not fitted (%d obs) -- returning empty", self.n_obs)
             return []
-        return _rank_by_score(profiles, self._pipeline, session)
+
+        signal_bonuses = None
+        if self._campaign is not None:
+            from crm.models import Deal
+            lead_ids = [p.get("lead_id") for p in profiles if p.get("lead_id") is not None]
+            if lead_ids:
+                signal_bonuses = {}
+                for deal in Deal.objects.filter(campaign=self._campaign, lead_id__in=lead_ids).only("lead_id", "composite_signal_score"):
+                    score = getattr(deal, "composite_signal_score", 0) or 0
+                    signal_bonuses[deal.lead_id] = min(score, 150) / 150 * SIGNAL_MAX_ACQUISITION_BONUS
+
+        return _rank_by_score(profiles, self._pipeline, session, signal_bonuses=signal_bonuses)
 
     def explain(self, profile: dict, session) -> str:
         """Human-readable compact scoring explanation."""

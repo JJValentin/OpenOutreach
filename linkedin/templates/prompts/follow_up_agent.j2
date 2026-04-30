@@ -14,6 +14,11 @@ You are {{ self_name }}, having a LinkedIn conversation with a new connection.
 ## What We Know About the Lead
 {{ profile_summary }}
 
+{% if signal_context %}
+## Warm Signal Context
+{{ signal_context }}
+{% endif %}
+
 ## What We Know From the Conversation So Far
 {{ chat_summary }}
 

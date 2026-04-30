@@ -14,6 +14,7 @@ import jinja2
 from pydantic import BaseModel, Field, model_validator
 from pydantic_ai import Agent
 
+from linkedin.agents._signal_context import build_signal_context
 from linkedin.conf import PROMPTS_DIR
 from linkedin.llm import get_llm_model
 
@@ -145,6 +146,7 @@ def _render_system_prompt(session, deal, recent_messages: list) -> str:
     self_name = f"{self_prof.get('first_name', '')} {self_prof.get('last_name', '')}".strip() or session.django_user.username
 
     now = timezone.now()
+    signal_context = build_signal_context(deal)
     return template.render(
         self_name=self_name,
         product_docs=campaign.product_docs or "",
@@ -156,6 +158,7 @@ def _render_system_prompt(session, deal, recent_messages: list) -> str:
         today=now.strftime("%Y-%m-%d"),
         days_since_last_outgoing=_days_since_last_outgoing(recent_messages, now),
         unanswered_outgoing=_count_unanswered_outgoing(recent_messages),
+        signal_context=signal_context,
     )
 
 

@@ -50,10 +50,10 @@ ENABLE_ACTIVE_HOURS = True
 ACTIVE_START_HOUR = 9   # inclusive, local time
 ACTIVE_END_HOUR = 19    # exclusive, local time
 ACTIVE_TIMEZONE = system_timezone()
-REST_DAYS = (5, 6)      # 0=Mon … 6=Sun; default Sat+Sun off
+REST_DAYS = (5, 6)      # 0=Mon ... 6=Sun; default Sat+Sun off
 
 # ----------------------------------------------------------------------
-# Campaign config (timing + ML defaults — hardcoded, no YAML)
+# Campaign config (timing + ML defaults -- hardcoded, no YAML)
 # ----------------------------------------------------------------------
 CAMPAIGN_CONFIG = {
     "check_pending_recheck_after_hours": 24,
@@ -72,5 +72,17 @@ CAMPAIGN_CONFIG = {
     "break_min_seconds": 600,    # 10 min
     "break_max_seconds": 1200,   # 20 min
 }
-
-
+# ----------------------------------------------------------------------
+# Signal radar defaults
+# ----------------------------------------------------------------------
+SIGNAL_RADAR_ENABLED = False
+SIGNAL_PRIORITY_THRESHOLD = 50
+SIGNAL_MAX_SOURCES_PER_CAMPAIGN = 20
+SIGNAL_MIN_CADENCE_MINUTES = 30
+SIGNAL_MAX_CADENCE_MINUTES = 24 * 60
+SIGNAL_OWN_PROFILE_DEFAULT_CADENCE_MINUTES = 30
+SIGNAL_WATCHED_SOURCE_DEFAULT_CADENCE_MINUTES = 120
+SIGNAL_MAX_POSTS_PER_POLL = 20
+SIGNAL_MAX_ENGAGERS_PER_POST = 500
+SIGNAL_RATE_LIMIT_PAUSE_HOURS = 4
+SIGNAL_MAX_ACQUISITION_BONUS = 0.25

@@ -227,6 +227,10 @@ class Task(models.Model):
         CONNECT = "connect"
         CHECK_PENDING = "check_pending"
         FOLLOW_UP = "follow_up"
+        POLL_OWN_POSTS = "poll_own_posts"
+        POLL_WATCHED_SOURCE = "poll_watched_source"
+        INJECT_SIGNAL_PROFILES = "inject_signal_profiles"
+        RECOMPUTE_SIGNAL_SCORES = "recompute_signal_scores"
 
     class Status(models.TextChoices):
         PENDING = "pending"
@@ -234,7 +238,7 @@ class Task(models.Model):
         COMPLETED = "completed"
         FAILED = "failed"
 
-    task_type = models.CharField(max_length=20, choices=TaskType.choices)
+    task_type = models.CharField(max_length=25, choices=TaskType.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     scheduled_at = models.DateTimeField()
     payload = models.JSONField(default=dict)
@@ -266,3 +270,112 @@ class Task(models.Model):
     def mark_failed(self):
         self.status = self.Status.FAILED
         self.save(update_fields=["status"])
+
+
+class WatchedSource(models.Model):
+    class Kind(models.TextChoices):
+        OWN_PROFILE = "own_profile", "Own Profile"
+        COMPETITOR_COMPANY = "competitor_company", "Competitor Company"
+        INFLUENCER_PROFILE = "influencer_profile", "Influencer Profile"
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name="watched_sources")
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    identifier = models.CharField(max_length=200)
+    display_name = models.CharField(max_length=200, blank=True, default="")
+    cadence_minutes = models.PositiveIntegerField(default=120)
+    is_active = models.BooleanField(default=True)
+    last_poll_at = models.DateTimeField(null=True, blank=True)
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        app_label = "linkedin"
+        indexes = [
+            models.Index(fields=["campaign", "kind", "is_active"]),
+            models.Index(fields=["last_poll_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.display_name or self.identifier} ({self.kind})"
+
+
+class Signal(models.Model):
+    class Kind(models.TextChoices):
+        OWN_POST_ENGAGEMENT = "own_post_engagement", "Own Post Engagement"
+        COMPETITOR_ENGAGEMENT = "competitor_engagement", "Competitor Engagement"
+        INFLUENCER_ENGAGEMENT = "influencer_engagement", "Influencer Engagement"
+
+    class EngagementType(models.TextChoices):
+        REACTION = "reaction", "Reaction"
+        COMMENT = "comment", "Comment"
+        REPOST = "repost", "Repost"
+
+    campaign = models.ForeignKey(
+        Campaign,
+        on_delete=models.CASCADE,
+        related_name="signals",
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    profile_urn = models.CharField(max_length=200, db_index=True)
+    company_urn = models.CharField(max_length=200, blank=True, default="")
+    watched_source = models.ForeignKey(
+        WatchedSource,
+        on_delete=models.SET_NULL,
+        related_name="signals",
+        null=True,
+        blank=True,
+    )
+    kind = models.CharField(max_length=25, choices=Kind.choices)
+    engagement_type = models.CharField(max_length=20, choices=EngagementType.choices)
+    post_urn = models.CharField(max_length=200)
+    post_excerpt = models.TextField(blank=True, default="")
+    post_author_urn = models.CharField(max_length=200, blank=True, default="")
+    post_published_at = models.DateTimeField(null=True, blank=True)
+    payload_json = models.JSONField(default=dict, blank=True)
+    score = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "linkedin"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["campaign", "profile_urn", "post_urn", "engagement_type"],
+                name="uniq_signal_campaign_profile_post_engagement",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["watched_source", "created_at"]),
+            models.Index(fields=["profile_urn", "score"]),
+            models.Index(fields=["kind", "created_at"]),
+            models.Index(fields=["post_urn"]),
+        ]
+
+    def __str__(self):
+        return f"{self.profile_urn} — {self.engagement_type} on {self.post_urn}"
+
+
+class SignalRadarState(models.Model):
+    """Singleton model for Signal Radar global pause state."""
+
+    class Meta:
+        app_label = "linkedin"
+        verbose_name = "Signal Radar State"
+        verbose_name_plural = "Signal Radar State"
+
+    paused_until = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return "Signal Radar State"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def load(cls) -> "SignalRadarState":
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
