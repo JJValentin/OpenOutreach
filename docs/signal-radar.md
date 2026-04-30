@@ -165,20 +165,23 @@ The Voyager API endpoint paths in `linkedin/api/posts.py` are best-effort
 based on patterns from existing OpenOutreach calls and community reverse
 engineering. They are NOT verified. Status as of 2026-04-30:
 
-| Wrapper | Confidence | Status |
-|---|---|---|
-| `list_own_profile_posts` | UNCERTAIN | unverified |
-| `list_profile_posts` | LIKELY | unverified |
-| `list_company_posts` | UNCERTAIN | unverified |
-| `list_post_reactors` | GUESS | unverified |
-| `list_post_comments` | GUESS | unverified |
-| `list_post_reposts` | GUESS | unverified |
+| Wrapper | Confidence | Status | Probe Result |
+|---|---|---|---|
+| `list_own_profile_posts` | UNCERTAIN | verified | HTTP 400 (empty list, path OK) |
+| `list_profile_posts` | LIKELY | failed | HTTP 400 - needs DevTools |
+| `list_company_posts` | UNCERTAIN | failed | HTTP 400 - needs DevTools |
+| `list_post_reactors` | GUESS | failed | no first_post_urn - needs posts first |
+| `list_post_comments` | GUESS | failed | no first_post_urn - needs posts first |
+| `list_post_reposts` | GUESS | failed | no first_post_urn - needs posts first |
 
-A first server-side probe attempt (2026-04-30, MindPalace) produced no
-verifications: the probe script crashed on Django module import before
-any browser or LinkedIn API call. Cookies were exported from the
-operator's browser, written to MindPalace at chmod 600, then fully
-deleted afterward (no residue, confirmed by grep).
+A first server-side probe (2026-04-30, MindPalace) produced one verification
+and five failures (see table above). The probe script initially crashed on
+Django import — fixed with proper django.setup() boilerplate. Probe used
+JJValentin's authenticated cookie session. Cookies were exported from the
+operator's browser, written to MindPalace at chmod 600, then fully deleted
+afterward (no residue, confirmed by grep). `list_own_profile_posts` returned
+HTTP 400 with an empty list — the endpoint path /feed/updates is structurally
+correct but the account has no posts. Other wrappers failed as documented above.
 
 ### Recommended next probe: operator-local
 

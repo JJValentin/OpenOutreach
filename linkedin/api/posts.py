@@ -91,7 +91,7 @@ def list_own_profile_posts(session, since_days: int = 30, limit: int = 20) -> Li
         List[dict] with keys: post_urn, post_excerpt, published_at, author_urn
     """
     api = PlaywrightLinkedinAPI(session)
-    # TODO: verify endpoint path — Voyager likely uses /me/feed/posts or similar
+    # Verified 2026-04-30 via JJValentin Voyager probe
     url = "https://www.linkedin.com/voyager/api/feed/updates"
 
     from datetime import datetime, timezone, timedelta
@@ -169,7 +169,7 @@ def list_profile_posts(session, public_id: str, limit: int = 20) -> List[Dict[st
         List[dict] with keys: post_urn, post_excerpt, published_at, author_urn
     """
     api = PlaywrightLinkedinAPI(session)
-    # TODO: verify endpoint path — likely /identity/profiles/{publicId}/posts
+    # Probe FAILED 2026-04-30: HTTP 400: bad request. Manual DevTools probe needed.
     url = "https://www.linkedin.com/voyager/api/identity/dash/profiles"
 
     params = {
@@ -242,7 +242,7 @@ def list_company_posts(session, company_slug: str, limit: int = 20) -> List[Dict
         List[dict] with keys: post_urn, post_excerpt, published_at, author_urn
     """
     api = PlaywrightLinkedinAPI(session)
-    # TODO: verify endpoint path — likely /entities/{companySlug}/posts
+    # Probe FAILED 2026-04-30: HTTP 400: bad request. Manual DevTools probe needed.
     url = f"https://www.linkedin.com/voyager/api/entities/companies/{company_slug}/posts"
 
     params = {
@@ -312,7 +312,7 @@ def list_post_reactors(session, post_urn: str, limit: int = 500) -> List[Dict[st
         List[dict] with keys: profile_urn, public_identifier, reaction_type
     """
     api = PlaywrightLinkedinAPI(session)
-    # TODO: verify endpoint path — likely /socialFeed/{postUrn}/reactions
+    # Probe FAILED 2026-04-30: no first_post_urn (upstream posts returned 0). Manual DevTools probe needed.
     post_id = post_urn.split(":")[-1]
     url = f"https://www.linkedin.com/voyager/api/socialFeed/updates/{post_id}/reactions"
 
@@ -379,7 +379,7 @@ def list_post_comments(session, post_urn: str, limit: int = 500) -> List[Dict[st
         (comment_text is truncated to 2000 chars)
     """
     api = PlaywrightLinkedinAPI(session)
-    # TODO: verify endpoint path — likely /socialFeed/{postUrn}/comments
+    # Probe FAILED 2026-04-30: no first_post_urn (upstream posts returned 0). Manual DevTools probe needed.
     post_id = post_urn.split(":")[-1]
     url = f"https://www.linkedin.com/voyager/api/socialFeed/updates/{post_id}/comments"
 
@@ -443,7 +443,7 @@ def list_post_reposts(session, post_urn: str, limit: int = 500) -> List[Dict[str
         List[dict] with keys: profile_urn, public_identifier
     """
     api = PlaywrightLinkedinAPI(session)
-    # TODO: verify endpoint path — likely /socialFeed/{postUrn}/reposts
+    # Probe FAILED 2026-04-30: no first_post_urn (upstream posts returned 0). Manual DevTools probe needed.
     post_id = post_urn.split(":")[-1]
     url = f"https://www.linkedin.com/voyager/api/socialFeed/updates/{post_id}/reposts"
 
