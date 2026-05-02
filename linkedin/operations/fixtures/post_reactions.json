@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "operation_name": "fetchPostReactions",
+    "query_id": "voyagerSocialDashReactions.41ebf31a9f4c4a84e35a49d5abc9010b",
+    "captured_at": "2026-05-01T15:45:00",
+    "redacted": true
+  },
+  "data": {
+    "socialDashReactionsByThreadUrn": {
+      "paging": {"count": 10, "start": 0, "total": 612},
+      "*elements": ["urn:li:fsd_socialActivityReaction:(urn:li:activity:123,urn:li:fsd_profile:ACoXXXX)"],
+      "$type": "com.linkedin.restli.common.CollectionResponse"
+    }
+  }
+}

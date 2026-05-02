@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "operation_name": "fetchCompanyPosts",
+    "query_id": "voyagerFeedDashOrganizationalPageUpdates.827e11d165078dd7a5afaf1cba734121",
+    "captured_at": "2026-05-01T14:35:02",
+    "redacted": true
+  },
+  "data": {
+    "organizationPageUpdateV2": {
+      "paging": {"count": 10, "start": 0, "total": 42},
+      "*elements": ["urn:li:fsd_update:ACTION:urn:li:activity:123456789"],
+      "$type": "com.linkedin.restli.common.CollectionResponse"
+    }
+  }
+}

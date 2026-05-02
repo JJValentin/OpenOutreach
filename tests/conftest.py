@@ -1,6 +1,8 @@
 # tests/conftest.py
 from unittest.mock import patch
 
+import json
+import pathlib
 import numpy as np
 import pytest
 
@@ -26,6 +28,24 @@ def _mock_embeddings(request):
     else:
         with patch("linkedin.ml.embeddings.embed_text", return_value=np.ones(384)):
             yield
+
+
+@pytest.fixture
+def load_fixture():
+    """Load a test fixture from linkedin/operations/fixtures/.
+
+    Supports two naming conventions:
+    - load_fixture("company_posts.json")          → fixtures/company_posts.json
+    - load_fixture("operations/company_posts.json") → fixtures/company_posts.json
+    """
+    def _load(name):
+        # Normalize: strip "operations/" prefix since fixtures are flat in that dir
+        if name.startswith("operations/"):
+            name = name[len("operations/"):]
+        path = pathlib.Path(__file__).parent.parent / "linkedin" / "operations" / "fixtures" / name
+        with open(path) as f:
+            return json.load(f)
+    return _load
 
 
 class FakeAccountSession:

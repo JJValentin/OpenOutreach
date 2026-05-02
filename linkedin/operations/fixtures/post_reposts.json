@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "operation_name": "fetchPostReposts",
+    "query_id": "voyagerFeedDashReshareFeed.dc56f7e6b303133b71fdbb584ec2a2a5",
+    "captured_at": "2026-05-01T14:35:02",
+    "redacted": true
+  },
+  "data": {
+    "reshareFeedByTargetUrn": {
+      "paging": {"count": 10, "start": 0, "total": 0},
+      "*elements": [],
+      "$type": "com.linkedin.restli.common.CollectionResponse"
+    }
+  }
+}

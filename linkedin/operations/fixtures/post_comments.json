@@ -1,0 +1,19 @@
+{
+  "_meta": {
+    "operation_name": "fetchPostComments",
+    "query_id": "voyagerSocialDashComments.afec6d88d7810d45548797a8dac4fb87",
+    "captured_at": "2026-05-01T14:35:02",
+    "redacted": true
+  },
+  "data": {
+    "socialDashCommentsBySocialDetail": {
+      "metadata": {
+        "paginationToken": "277849334-1777646027061-cc00ad7fdf62b646c1fbbe019162b12e",
+        "sortOrder": "RELEVANCE"
+      },
+      "paging": {"count": 2, "start": 0, "total": 49},
+      "*elements": ["urn:li:fsd_comment:(urn:li:activity:123,urn:li:fsd_profile:ACoXXXX)"],
+      "$type": "com.linkedin.restli.common.CollectionResponse"
+    }
+  }
+}

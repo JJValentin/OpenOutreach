@@ -75,7 +75,7 @@ CAMPAIGN_CONFIG = {
 # ----------------------------------------------------------------------
 # Signal radar defaults
 # ----------------------------------------------------------------------
-SIGNAL_RADAR_ENABLED = False
+SIGNAL_RADAR_ENABLED = True
 SIGNAL_PRIORITY_THRESHOLD = 50
 SIGNAL_MAX_SOURCES_PER_CAMPAIGN = 20
 SIGNAL_MIN_CADENCE_MINUTES = 30
