@@ -1,71 +1,59 @@
-"""RED phase: smoke test for Signal Radar operations.
+"""Unit tests for Signal Radar smoke test script.
 
 Verifies smoke_test.py exit codes for:
 1. All operations succeed -> exit 0
 2. One operation fails -> exit 1
 3. Chrome/CDP connection fails -> exit 2
 4. Zero results -> exit 0 (valid, not a failure)
+5. Operation raises exception -> exit 1
+6. JSON output structure is correct
 """
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
-from dataclasses import dataclass
-from typing import Optional
+from unittest.mock import MagicMock, patch
 
 from linkedin.operations.health import FailureType
-from linkedin.operations.parsers import ParseResult, PaginationInfo
+from linkedin.operations.parsers import ParseResult, PaginationInfo, ParsedPost
+from linkedin.operations.executor import LinkedInOperationExecutor
 
 
-@dataclass
-class MockParseResult:
-    failure: Optional[FailureType] = None
-    failure_message: str = ""
-    data: list = None
-    pagination: Optional[PaginationInfo] = None
-
-    def __post_init__(self):
-        if self.data is None:
-            self.data = []
-        if self.pagination is None:
-            self.pagination = PaginationInfo(has_more=False)
-
-
-class MockExecutor:
-    def __init__(self, results: dict):
-        self._results = results
-
-    def fetch_company_posts(self, company_urn_or_slug, start=0, count=5):
-        return self._get_result("fetchCompanyPosts")
-
-    def fetch_post_reactions(self, post_urn, start=0, count=5):
-        return self._get_result("fetchPostReactions")
-
-    def fetch_post_comments(self, post_urn, start=0, count=5):
-        return self._get_result("fetchPostComments")
-
-    def fetch_post_reposts(self, post_urn, start=0, count=5):
-        return self._get_result("fetchPostReposts")
-
-    def _get_result(self, op_name):
-        val = self._results.get(op_name)
-        if isinstance(val, Exception):
-            raise val
-        return val
+def make_parsed_post(urn="urn:li:activity:1"):
+    """Create a minimal ParsedPost for testing."""
+    return ParsedPost(
+        urn=urn,
+        author_urn="urn:li:member:1",
+        text="Test post",
+        published_at=None,
+        reaction_count=0,
+        comment_count=0,
+        repost_count=0,
+        url=None,
+    )
 
 
-@pytest.fixture
-def mock_cdp_ok():
-    with patch("requests.get") as mock_get:
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "webSocketDebuggerUrl": "ws://localhost:9222/devtools/browser/test"
-        }
-        mock_get.return_value = mock_response
-        yield mock_get
+def make_success_result(with_posts=True):
+    """Create a ParseResult indicating success."""
+    data = [make_parsed_post()] if with_posts else []
+    return ParseResult(
+        data=data,
+        pagination=PaginationInfo(has_more=False, total=len(data)),
+        failure=None,
+        failure_message="",
+    )
+
+
+def make_failure_result(failure_type=FailureType.AUTH_EXPIRED):
+    """Create a ParseResult indicating failure."""
+    return ParseResult(
+        data=[],
+        pagination=PaginationInfo(has_more=False, total=0),
+        failure=failure_type,
+        failure_message=str(failure_type),
+    )
 
 
 @pytest.fixture
 def active_profile(db):
+    """Create an active LinkedInProfile for tests."""
     from linkedin.models import LinkedInProfile
     from tests.factories import UserFactory
     user = UserFactory(username="testuser_scenario")
@@ -80,109 +68,139 @@ def active_profile(db):
     user.delete()
 
 
-class TestSmokeTestExitCodes:
-    def test_all_ops_succeed_exit_0(self, db, mock_cdp_ok, active_profile):
-        success_result = MockParseResult(
-            failure=None,
-            data=[{"post_urn": "urn:li:activity:1"}],
-            pagination=PaginationInfo(has_more=False, total=1),
-        )
-        mock_executor = MockExecutor({
-            "fetchCompanyPosts": success_result,
-            "fetchPostReactions": success_result,
-            "fetchPostComments": success_result,
-            "fetchPostReposts": success_result,
-        })
-        with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
-            with patch("linkedin.scripts.smoke_test.PlaywrightLinkedinAPI"):
-                from linkedin.scripts.smoke_test import main
-                exit_code = main(target_company="1337", json_output=False)
-                assert exit_code == 0, "Expected exit 0 when all operations succeed"
+def _patch_playwright(mock_pw):
+    """Set up minimal Playwright mock."""
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+    mock_browser.contexts = [mock_context]
+    mock_context.pages = [mock_page]
+    mock_pw.return_value.__enter__ = MagicMock(return_value=mock_pw.return_value)
+    mock_pw.return_value.__exit__ = MagicMock(return_value=False)
+    mock_pw.return_value.chromium.connect_over_cdp.return_value = mock_browser
+    return mock_browser, mock_context, mock_page
 
-    def test_one_op_fails_exit_1(self, db, mock_cdp_ok, active_profile):
-        success_result = MockParseResult(
-            failure=None,
-            data=[{"post_urn": "urn:li:activity:1"}],
-            pagination=PaginationInfo(has_more=False, total=1),
-        )
-        failure_result = MockParseResult(
-            failure=FailureType.AUTH_EXPIRED,
-            failure_message="Auth expired",
-            data=[],
-        )
-        mock_executor = MockExecutor({
-            "fetchCompanyPosts": success_result,
-            "fetchPostReactions": failure_result,
-            "fetchPostComments": success_result,
-            "fetchPostReposts": success_result,
-        })
+
+class TestSmokeTestExitCodes:
+    """Test smoke_test.py exit codes under various conditions."""
+
+    def test_all_ops_succeed_exit_0(self, db, active_profile):
+        """Mock executor returning success for all 4 ops -> exit 0."""
+        mock_executor = MagicMock(spec=LinkedInOperationExecutor)
+        mock_executor.fetch_company_posts.return_value = make_success_result(with_posts=True)
+        mock_executor.fetch_post_reactions.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_comments.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reposts.return_value = make_success_result(with_posts=False)
+
         with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
-            with patch("linkedin.scripts.smoke_test.PlaywrightLinkedinAPI"):
-                from linkedin.scripts.smoke_test import main
-                exit_code = main(target_company="1337", json_output=False)
-                assert exit_code == 1, "Expected exit 1 when at least one operation fails"
+            with patch("linkedin.scripts.smoke_test.get_chrome_ws_url",
+                       return_value="ws://localhost:9222/devtools/browser/test"):
+                with patch("linkedin.scripts.smoke_test.sync_playwright") as mock_pw:
+                    _patch_playwright(mock_pw)
+                    from linkedin.scripts.smoke_test import main
+                    exit_code = main(target_company="1337", json_output=False)
+                    assert exit_code == 0, f"Expected exit 0 when all ops succeed, got {exit_code}"
+
+    def test_one_op_fails_exit_1(self, db, active_profile):
+        """Mock executor returning failure for one op -> exit 1."""
+        mock_executor = MagicMock(spec=LinkedInOperationExecutor)
+        mock_executor.fetch_company_posts.return_value = make_success_result(with_posts=True)
+        mock_executor.fetch_post_reactions.return_value = make_failure_result(FailureType.AUTH_EXPIRED)
+        mock_executor.fetch_post_comments.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reposts.return_value = make_success_result(with_posts=False)
+
+        with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
+            with patch("linkedin.scripts.smoke_test.get_chrome_ws_url",
+                       return_value="ws://localhost:9222/devtools/browser/test"):
+                with patch("linkedin.scripts.smoke_test.sync_playwright") as mock_pw:
+                    _patch_playwright(mock_pw)
+                    from linkedin.scripts.smoke_test import main
+                    exit_code = main(target_company="1337", json_output=False)
+                    assert exit_code == 1, f"Expected exit 1 when at least one op fails, got {exit_code}"
 
     def test_chrome_connection_fails_exit_2(self, db, active_profile):
-        with patch("requests.get") as mock_get:
-            mock_get.side_effect = Exception("Connection refused")
+        """Mock Chrome CDP connection fails -> exit 2."""
+        with patch("linkedin.scripts.smoke_test.get_chrome_ws_url", return_value=None):
             from linkedin.scripts.smoke_test import main
             exit_code = main(target_company="1337", json_output=False)
-            assert exit_code == 2, "Expected exit 2 when Chrome CDP connection fails"
+            assert exit_code == 2, f"Expected exit 2 when Chrome CDP fails, got {exit_code}"
 
-    def test_zero_results_is_pass_exit_0(self, db, mock_cdp_ok, active_profile):
-        zero_result = MockParseResult(
-            failure=None,
-            data=[],
-            pagination=PaginationInfo(has_more=False),
-        )
-        mock_executor = MockExecutor({
-            "fetchCompanyPosts": zero_result,
-            "fetchPostReactions": zero_result,
-            "fetchPostComments": zero_result,
-            "fetchPostReposts": zero_result,
-        })
-        with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
-            with patch("linkedin.scripts.smoke_test.PlaywrightLinkedinAPI"):
-                from linkedin.scripts.smoke_test import main
-                exit_code = main(target_company="1337", json_output=False)
-                assert exit_code == 0, "Expected exit 0 when zero results returned (valid)"
+    def test_zero_results_is_pass_exit_0(self, db, active_profile):
+        """Zero results returned -> PASS (exit 0), not fail."""
+        mock_executor = MagicMock(spec=LinkedInOperationExecutor)
+        # Returns empty data - no posts, so reactions/comments/reposts are skipped (PASS)
+        mock_executor.fetch_company_posts.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reactions.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_comments.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reposts.return_value = make_success_result(with_posts=False)
 
-    def test_operation_exception_exit_1(self, db, mock_cdp_ok, active_profile):
-        success_result = MockParseResult(
-            failure=None,
-            data=[{"post_urn": "urn:li:activity:1"}],
-        )
-        mock_executor = MockExecutor({
-            "fetchCompanyPosts": success_result,
-            "fetchPostReactions": Exception("Network error"),
-            "fetchPostComments": success_result,
-            "fetchPostReposts": success_result,
-        })
         with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
-            with patch("linkedin.scripts.smoke_test.PlaywrightLinkedinAPI"):
-                from linkedin.scripts.smoke_test import main
-                exit_code = main(target_company="1337", json_output=False)
-                assert exit_code == 1, "Expected exit 1 when operation raises exception"
+            with patch("linkedin.scripts.smoke_test.get_chrome_ws_url",
+                       return_value="ws://localhost:9222/devtools/browser/test"):
+                with patch("linkedin.scripts.smoke_test.sync_playwright") as mock_pw:
+                    _patch_playwright(mock_pw)
+                    from linkedin.scripts.smoke_test import main
+                    exit_code = main(target_company="1337", json_output=False)
+                    assert exit_code == 0, f"Expected exit 0 for zero results, got {exit_code}"
+
+    def test_operation_exception_exit_1(self, db, active_profile):
+        """Exception during operation -> exit 1."""
+        mock_executor = MagicMock(spec=LinkedInOperationExecutor)
+        mock_executor.fetch_company_posts.return_value = make_success_result(with_posts=True)
+        mock_executor.fetch_post_reactions.side_effect = Exception("Network error")
+        mock_executor.fetch_post_comments.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reposts.return_value = make_success_result(with_posts=False)
+
+        with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
+            with patch("linkedin.scripts.smoke_test.get_chrome_ws_url",
+                       return_value="ws://localhost:9222/devtools/browser/test"):
+                with patch("linkedin.scripts.smoke_test.sync_playwright") as mock_pw:
+                    _patch_playwright(mock_pw)
+                    from linkedin.scripts.smoke_test import main
+                    exit_code = main(target_company="1337", json_output=False)
+                    assert exit_code == 1, f"Expected exit 1 when operation raises, got {exit_code}"
 
 
 class TestSmokeTestJSONOutput:
-    def test_json_output_structure(self, db, mock_cdp_ok, active_profile):
-        success_result = MockParseResult(
-            failure=None,
-            data=[{"post_urn": "urn:li:activity:1"}],
-            pagination=PaginationInfo(has_more=False, total=1),
-        )
-        mock_executor = MockExecutor({
-            "fetchCompanyPosts": success_result,
-            "fetchPostReactions": success_result,
-            "fetchPostComments": success_result,
-            "fetchPostReposts": success_result,
-        })
+    """Test --json output format."""
+
+    def test_json_output_structure(self, db, active_profile):
+        """JSON output has required fields: overall_pass, exit_code, operations, profile."""
+        import json
+        mock_executor = MagicMock(spec=LinkedInOperationExecutor)
+        mock_executor.fetch_company_posts.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reactions.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_comments.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reposts.return_value = make_success_result(with_posts=False)
+
         with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
-            with patch("linkedin.scripts.smoke_test.PlaywrightLinkedinAPI"):
-                from linkedin.scripts.smoke_test import main
-                with patch("builtins.print") as mock_print:
-                    main(target_company="1337", json_output=True)
-                    call_args = [str(c) for c in mock_print.call_args_list]
-                    json_str = [a for a in call_args if "overall_pass" in a or "exit_code" in a]
-                    assert json_str, f"Expected JSON to be printed, got: {call_args}"
+            with patch("linkedin.scripts.smoke_test.get_chrome_ws_url",
+                       return_value="ws://localhost:9222/devtools/browser/test"):
+                with patch("linkedin.scripts.smoke_test.sync_playwright") as mock_pw:
+                    _patch_playwright(mock_pw)
+                    printed_lines = []
+                    with patch("builtins.print", side_effect=lambda *a, **kw: printed_lines.append(str(a[0]) if a else "")):
+                        from linkedin.scripts.smoke_test import main
+                        exit_code = main(target_company="1337", json_output=True)
+
+                    # Find the JSON line
+                    json_line = None
+                    for line in printed_lines:
+                        try:
+                            obj = json.loads(line)
+                            json_line = obj
+                            break
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+
+                    assert json_line is not None, f"No valid JSON in output: {printed_lines}"
+                    assert "overall_pass" in json_line, "Missing 'overall_pass'"
+                    assert "exit_code" in json_line, "Missing 'exit_code'"
+                    assert "operations" in json_line, "Missing 'operations'"
+                    assert "profile" in json_line, "Missing 'profile'"
+                    # Check all 4 operations are present
+                    ops = json_line["operations"]
+                    for op_name in ("fetchCompanyPosts", "fetchPostReactions", "fetchPostComments", "fetchPostReposts"):
+                        assert op_name in ops, f"Missing operation '{op_name}' in JSON"
+                        assert "pass" in ops[op_name], f"Missing 'pass' for {op_name}"
+                        assert "count" in ops[op_name], f"Missing 'count' for {op_name}"

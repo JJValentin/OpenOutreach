@@ -286,6 +286,7 @@ class WatchedSource(models.Model):
     is_active = models.BooleanField(default=True)
     last_poll_at = models.DateTimeField(null=True, blank=True)
     consecutive_failures = models.PositiveIntegerField(default=0)
+    last_successful_poll_at = models.DateTimeField(null=True, blank=True)
     last_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

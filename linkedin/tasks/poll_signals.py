@@ -60,10 +60,11 @@ def handle_poll_watched_source(task: Task, session, qualifiers: dict) -> None:
     try:
         result = poll_watched_source(source, session)
 
-        # Reset failure counter on success
+        # Reset failure counter on success; record successful poll time
         source.consecutive_failures = 0
         source.last_error = ""
-        source.save(update_fields=["consecutive_failures", "last_error"])
+        source.last_successful_poll_at = timezone.now()
+        source.save(update_fields=["consecutive_failures", "last_error", "last_successful_poll_at"])
 
         # Reschedule with jitter
         _reschedule(source)
@@ -116,10 +117,11 @@ def handle_poll_own_posts(task: Task, session, qualifiers: dict) -> None:
             total_created += result.signals_created
             total_updated += result.signals_updated
 
-            # Reset failure counter on success
+            # Reset failure counter on success; record successful poll time
             source.consecutive_failures = 0
             source.last_error = ""
-            source.save(update_fields=["consecutive_failures", "last_error"])
+            source.last_successful_poll_at = timezone.now()
+            source.save(update_fields=["consecutive_failures", "last_error", "last_successful_poll_at"])
 
             # Reschedule with jitter
             _reschedule(source)

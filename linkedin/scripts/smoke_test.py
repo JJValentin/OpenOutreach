@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import requests
+from playwright.sync_api import sync_playwright
 
 # Django setup must happen before any model imports
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "linkedin.django_settings")
@@ -109,7 +110,6 @@ def main(target_company: str = "1337", json_output: bool = False):
                 self.linkedin_profile = profile
                 self._ws_url = ws_url
 
-        from playwright.sync_api import sync_playwright
         playwright = sync_playwright().start()
         # Connect to existing Chrome via CDP
         browser = playwright.chromium.connect_over_cdp(ws_url)
