@@ -19,13 +19,13 @@ Signal Radar discovers high-intent LinkedIn engagement signals and injects them 
 ## 2. Enabling
 
 1. Edit openoutreach/settings.py (or your override file):
-   `python
+   ```python
    SIGNAL_RADAR_ENABLED = True
-   `
+   ```
 2. Restart the daemon worker (Celery or systemd service):
-   `ash
+   ```bash
    sudo systemctl restart openoutreach-worker
-   `
+   ```
    Or restart the Celery process if using Celery directly.
 
 ---
@@ -212,7 +212,9 @@ Run the probe from the operator's own workstation, not from MindPalace:
   to a remote box.
 - Your normal IP avoids "unusual login location" flags.
 - You can run headed Playwright and observe what LinkedIn returns.
-- No SSH friction; iterative debugging is faster.---
+- No SSH friction; iterative debugging is faster.
+
+---
 
 ## Operational Status (Change B)
 
