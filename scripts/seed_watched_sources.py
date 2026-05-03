@@ -15,17 +15,17 @@ if campaign:
     if existing_count == 0:
         WatchedSource.objects.create(
             campaign=campaign,
-            kind= ' OWN_PROFILE ' ,
-            identifier= ' joshua-valentin ' ,
-            display_name= ' Joshua Valentin ' ,
+            kind='OWN_PROFILE',
+            identifier='joshua-valentin',
+            display_name='Joshua Valentin',
             cadence_minutes=240,
             is_active=True,
         )
         WatchedSource.objects.create(
             campaign=campaign,
-            kind= ' COMPETITOR_COMPANY ' ,
-            identifier= ' linkedin ' ,
-            display_name= ' LinkedIn ' ,
+            kind='COMPETITOR_COMPANY',
+            identifier='linkedin',
+            display_name='LinkedIn',
             cadence_minutes=240,
             is_active=True,
         )

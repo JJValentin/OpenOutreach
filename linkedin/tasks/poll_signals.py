@@ -37,11 +37,11 @@ def _reschedule(source: WatchedSource) -> None:
 
     With probability SIGNAL_POLL_SKIP_PROBABILITY, delay is doubled to simulate a human skip.
     """
-    from django.conf import settings
+    from linkedin import conf
     from linkedin.tasks.scheduler import enqueue_poll_watched_source
 
-    jitter_percent = settings.SIGNAL_POLL_JITTER_PERCENT
-    skip_prob = settings.SIGNAL_POLL_SKIP_PROBABILITY
+    jitter_percent = conf.SIGNAL_POLL_JITTER_PERCENT
+    skip_prob = conf.SIGNAL_POLL_SKIP_PROBABILITY
 
     multiplier = 1 - (jitter_percent / 200) + (jitter_percent / 100) * random.random()
     delay_seconds = source.cadence_minutes * 60 * multiplier

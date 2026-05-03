@@ -3,9 +3,10 @@ Unit tests for _reschedule() jitter distribution and skip probability.
 Spec: signal-radar-jitter-config
 
 Tests verify:
-- Jitter multipliers fall within (1 - jitter_percent/100) to (1 + jitter_percent/100) bounds
-- Mean of samples is within 2% of expected cadence
-- Skip probability fraction is within 1 percentage point of SIGNAL_POLL_SKIP_PROBABILITY
+- Jitter config constants exist in linkedin.conf with correct types/values
+- Jitter multipliers fall within the tight +/-jitter_percent/2 bounds
+- Mean of non-skipped samples is within 2% of expected cadence
+- Skip probability fraction is within 1 percentage point of configured value
 """
 from __future__ import annotations
 
@@ -13,19 +14,14 @@ import statistics
 from unittest.mock import MagicMock, patch
 
 import pytest
-import django
-import os
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "openoutreach.settings")
-django.setup()
-
-from django.test import override_settings
 
 
-def _call_reschedule_delay(cadence_minutes: int, n_samples: int = 10_000) -> list[float]:
+def _call_reschedule_delay(
+    cadence_minutes: int, n_samples: int = 10_000
+) -> list:
     """
-    Call _reschedule logic directly by importing and patching enqueue_poll_watched_source.
-    Returns list of delay_seconds values.
+    Call _reschedule N times and collect delay_seconds values.
+    Patches enqueue_poll_watched_source at the scheduler module level.
     """
     from linkedin.tasks.poll_signals import _reschedule
 
@@ -34,96 +30,111 @@ def _call_reschedule_delay(cadence_minutes: int, n_samples: int = 10_000) -> lis
     source.id = 1
     source.cadence_minutes = cadence_minutes
 
-    with patch("linkedin.tasks.scheduler.enqueue_poll_watched_source") as mock_enqueue:
+    with patch(
+        "linkedin.tasks.scheduler.enqueue_poll_watched_source"
+    ) as mock_enqueue:
         for _ in range(n_samples):
+            mock_enqueue.reset_mock()
             _reschedule(source)
             if mock_enqueue.call_args:
                 _, kwargs = mock_enqueue.call_args
                 delays.append(kwargs.get("delay_seconds", 0))
-        return delays
+    return delays
 
 
-@override_settings(
-    SIGNAL_POLL_JITTER_PERCENT=25,
-    SIGNAL_POLL_SKIP_PROBABILITY=0.07,
-)
-def test_jitter_bounds():
-    """All jitter multipliers must be within (1 - jitter/100) to (1 + jitter/100)."""
+def test_conf_constants_exist():
+    """linkedin.conf must define SIGNAL_POLL_JITTER_PERCENT and SIGNAL_POLL_SKIP_PROBABILITY."""
+    from linkedin import conf
+
+    assert hasattr(conf, "SIGNAL_POLL_JITTER_PERCENT"), (
+        "linkedin.conf missing SIGNAL_POLL_JITTER_PERCENT"
+    )
+    assert hasattr(conf, "SIGNAL_POLL_SKIP_PROBABILITY"), (
+        "linkedin.conf missing SIGNAL_POLL_SKIP_PROBABILITY"
+    )
+    assert isinstance(conf.SIGNAL_POLL_JITTER_PERCENT, int), (
+        "Expected int for SIGNAL_POLL_JITTER_PERCENT, got {}".format(
+            type(conf.SIGNAL_POLL_JITTER_PERCENT)
+        )
+    )
+    assert isinstance(conf.SIGNAL_POLL_SKIP_PROBABILITY, float), (
+        "Expected float for SIGNAL_POLL_SKIP_PROBABILITY, got {}".format(
+            type(conf.SIGNAL_POLL_SKIP_PROBABILITY)
+        )
+    )
+    assert conf.SIGNAL_POLL_JITTER_PERCENT == 25
+    assert conf.SIGNAL_POLL_SKIP_PROBABILITY == 0.07
+
+
+def test_jitter_bounds(monkeypatch):
+    """Jitter multipliers must fall within tight +/-jitter_percent/2 bounds."""
+    jitter_percent = 25
+    monkeypatch.setattr("linkedin.conf.SIGNAL_POLL_JITTER_PERCENT", jitter_percent)
+    monkeypatch.setattr("linkedin.conf.SIGNAL_POLL_SKIP_PROBABILITY", 0.0)
+
     cadence_minutes = 120
     cadence_seconds = cadence_minutes * 60
-    jitter_percent = 25
 
-    low = cadence_seconds * (1 - jitter_percent / 100)
-    high = cadence_seconds * (1 + jitter_percent / 100)
+    # Tight bounds: +/-12.5% at jitter_percent=25
+    low = cadence_seconds * (1 - jitter_percent / 200)
+    high = cadence_seconds * (1 + jitter_percent / 200)
 
     delays = _call_reschedule_delay(cadence_minutes, 10_000)
-    assert len(delays) == 10_000, f"Expected 10000 samples, got {len(delays)}"
+    assert len(delays) == 10_000, "Expected 10000 samples, got {}".format(len(delays))
 
-    # Account for skip doubles: the high bound doubles for 7% of samples
-    # So actual max is cadence_seconds * (1 + jitter/100) * 2
-    non_skipped = [d for d in delays if d <= high * 1.01]
-    # At minimum 92% of delays must be within normal bounds
-    assert len(non_skipped) >= 9000, (
-        f"Too many samples outside normal jitter bounds: {len(delays) - len(non_skipped)} / {len(delays)}"
-    )
-
-    for d in non_skipped:
-        assert low <= d <= high * 1.01, (
-            f"Delay {d:.1f}s out of range [{low:.1f}, {high:.1f}]"
+    for d in delays:
+        assert low <= d <= high + 0.001, (
+            "Delay {:.3f}s out of tight jitter bounds [{:.1f}, {:.1f}]".format(d, low, high)
         )
 
 
-@override_settings(
-    SIGNAL_POLL_JITTER_PERCENT=25,
-    SIGNAL_POLL_SKIP_PROBABILITY=0.07,
-)
-def test_jitter_mean():
-    """Mean of samples (non-skipped) should be within 2% of cadence."""
+def test_jitter_mean(monkeypatch):
+    """Mean of samples should be within 2% of cadence."""
+    monkeypatch.setattr("linkedin.conf.SIGNAL_POLL_JITTER_PERCENT", 25)
+    monkeypatch.setattr("linkedin.conf.SIGNAL_POLL_SKIP_PROBABILITY", 0.0)
+
     cadence_minutes = 120
     cadence_seconds = cadence_minutes * 60
-    jitter_percent = 25
-    high = cadence_seconds * (1 + jitter_percent / 100)
 
     delays = _call_reschedule_delay(cadence_minutes, 10_000)
-    # Exclude skipped samples (those doubled)
-    normal = [d for d in delays if d <= high * 1.01]
-    mean = statistics.mean(normal)
+    mean = statistics.mean(delays)
     assert abs(mean - cadence_seconds) / cadence_seconds < 0.02, (
-        f"Mean {mean:.1f}s deviates >2% from cadence {cadence_seconds}s"
+        "Mean {:.1f}s deviates >2% from cadence {}s".format(mean, cadence_seconds)
     )
 
 
-@override_settings(
-    SIGNAL_POLL_JITTER_PERCENT=25,
-    SIGNAL_POLL_SKIP_PROBABILITY=0.07,
-)
-def test_skip_probability():
-    """Skip fraction should be within 1 percentage point of 0.07."""
+def test_skip_probability(monkeypatch):
+    """Skip fraction should be within 1 percentage point of configured value."""
+    jitter_percent = 25
+    skip_prob = 0.07
+    monkeypatch.setattr("linkedin.conf.SIGNAL_POLL_JITTER_PERCENT", jitter_percent)
+    monkeypatch.setattr("linkedin.conf.SIGNAL_POLL_SKIP_PROBABILITY", skip_prob)
+
     cadence_minutes = 120
     cadence_seconds = cadence_minutes * 60
-    jitter_percent = 25
-    high = cadence_seconds * (1 + jitter_percent / 100)
+    high_normal = cadence_seconds * (1 + jitter_percent / 200)
 
     delays = _call_reschedule_delay(cadence_minutes, 10_000)
-    doubled = [d for d in delays if d > high * 1.01]
-    skip_fraction = len(doubled) / len(delays)
+    doubled = [d for d in delays if d > high_normal * 1.001]
+    actual_skip_fraction = len(doubled) / len(delays)
 
-    assert 0.06 <= skip_fraction <= 0.08, (
-        f"Skip fraction {skip_fraction:.4f} not in [0.06, 0.08]"
+    assert 0.06 <= actual_skip_fraction <= 0.08, (
+        "Skip fraction {:.4f} not in [0.06, 0.08] (expected ~{})".format(
+            actual_skip_fraction, skip_prob
+        )
     )
 
 
-@override_settings(
-    SIGNAL_POLL_JITTER_PERCENT=0,
-    SIGNAL_POLL_SKIP_PROBABILITY=0.0,
-)
-def test_zero_jitter_deterministic():
-    """With SIGNAL_POLL_JITTER_PERCENT=0 and no skip, all delays are exactly cadence."""
+def test_zero_jitter_deterministic(monkeypatch):
+    """With jitter=0 and skip_prob=0, all delays equal cadence exactly."""
+    monkeypatch.setattr("linkedin.conf.SIGNAL_POLL_JITTER_PERCENT", 0)
+    monkeypatch.setattr("linkedin.conf.SIGNAL_POLL_SKIP_PROBABILITY", 0.0)
+
     cadence_minutes = 120
     cadence_seconds = cadence_minutes * 60
 
     delays = _call_reschedule_delay(cadence_minutes, 100)
     for d in delays:
         assert abs(d - cadence_seconds) < 0.001, (
-            f"Expected deterministic {cadence_seconds}s, got {d}"
+            "Expected deterministic {}s, got {}".format(cadence_seconds, d)
         )
