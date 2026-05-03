@@ -234,27 +234,37 @@ verified against a live LinkedIn session. See "Endpoint verification status" sec
 
 ---
 
-## How to Verify the Daemon Is Running
+## How to Verify the Polling Daemon
 
-The polling daemon (`rundaemon`) is managed by a systemd user service (installed by Change A).
+The Signal Radar polling daemon runs as a user-mode systemd service: `openoutreach-rundaemon.service`.
 
-**Check systemd service status:**
+### Check installation
+The unit file is installed by the operational hardening change's setup script. Verify presence:
 ```bash
-systemctl --user status openoutreach-rundaemon
+systemctl --user list-unit-files openoutreach-rundaemon.service
 ```
 
-Expected output when running:
+### Check active state
+```bash
+systemctl --user is-active openoutreach-rundaemon.service
 ```
-● openoutreach-rundaemon.service - OpenOutreach Daemon
-     Loaded: loaded (/home/clawdbot/.config/systemd/user/openoutreach-rundaemon.service; enabled)
-     Active: active (running) since ...
+Expected outcomes:
+- `active` — daemon is running and polling on schedule
+- `inactive` — daemon is installed but not started (default until DEPLOY phase activates it)
+- `failed` — daemon crashed; check `journalctl --user -u openoutreach-rundaemon -n 100`
+
+### Activation
+The daemon is intentionally NOT enabled on initial install when `WatchedSource` records exist. Activation happens during DEPLOY phase after operator confirmation:
+```bash
+systemctl --user enable --now openoutreach-rundaemon.service
 ```
 
-Expected output when NOT running (expected if Change A not installed):
+### Boot survival
+For the daemon to survive logout/reboot, the user must have linger enabled (one-time setup, requires sudo):
+```bash
+sudo loginctl enable-linger clawdbot
 ```
-● openoutreach-rundaemon.service
-     Loaded: not found
-```
+Confirm with: `loginctl show-user clawdbot | grep Linger` (should show `Linger=yes`).
 
 **Run the smoke test:**
 ```bash
@@ -277,13 +287,13 @@ Profile: your-username
 Overall: PASS (exit 0)
 ```
 
-Note: Zero items per operation is a PASS (valid — LinkedIn company 1337 may have no recent engagement).
+Note: Zero items per operation is a PASS (valid — LinkedIn company 1337 may have no recent engagement). If the target company has no recent posts, engagement ops (reactions/comments/reposts) will be marked SKIP. Use `--fallback-post-urn <urn>` to exercise those ops against a known post.
 
 **Exit codes:**
 | Code | Meaning |
 |------|---------|
-| 0 | All operations passed |
-| 1 | At least one operation failed |
+| 0 | All operations passed (at least one PASS, no FAILs) |
+| 1 | At least one operation failed, OR all ops skipped (insufficient signal) |
 | 2 | Setup error (no Chrome, no active LinkedInProfile) |
 
 **JSON output (for monitoring):**
@@ -291,6 +301,8 @@ Note: Zero items per operation is a PASS (valid — LinkedIn company 1337 may ha
 python manage.py smoke_test_signal_radar --target-company 1337 --json
 ```
 Output: `{"overall_pass": true, "exit_code": 0, "operations": {...}, "profile": "username"}`
+
+Each operation in the JSON output includes a `status` field: `"PASS"`, `"FAIL"`, or `"SKIP"`.
 
 ---
 
