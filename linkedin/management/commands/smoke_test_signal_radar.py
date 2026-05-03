@@ -1,0 +1,32 @@
+"""Django management command: smoke_test_signal_radar.
+
+Usage: python manage.py smoke_test_signal_radar [--target-company 1337] [--json]
+"""
+from django.core.management.base import BaseCommand
+from linkedin.scripts.smoke_test import main as run_smoke_test
+import sys
+
+
+class Command(BaseCommand):
+    help = "Run Signal Radar smoke test against LinkedIn's API via Chrome CDP"
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--target-company",
+            default="1337",
+            help="LinkedIn company ID or slug"
+        )
+        parser.add_argument(
+            "--json",
+            action="store_true",
+            dest="json_output",
+            help="Output JSON"
+        )
+
+    def handle(self, *args, **options):
+        exit_code = run_smoke_test(
+            target_company=options["target_company"],
+            json_output=options["json_output"],
+        )
+        if exit_code != 0:
+            sys.exit(exit_code)
