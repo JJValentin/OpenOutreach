@@ -316,25 +316,10 @@ To manually clear a rate-limit pause: use the "Resume Signal Radar globally" act
 
 ## Rate-Limit Pause Behavior
 
-Signal Radar implements an automatic rate-limit pause to back off when LinkedIn returns 429 responses.
+*(This subsection is reserved for Change A documentation. When Change A is merged, its rate-limit pause docs will appear here.)*
 
-### Mechanics
-- **Scope:** GLOBAL. The pause applies to ALL watched sources, not per-source. Implemented as a singleton SignalRadarState model.
-- **Trigger:** Automatic. When any poll returns HTTP 429, SignalRadarState.paused_until is set to 
-ow + SIGNAL_RATE_LIMIT_PAUSE_HOURS hours (default 4).
-- **Auto-resume:** Yes. The pause expires when paused_until datetime passes; no explicit resume task is required. Subsequent polls will check is_signal_radar_paused() and resume normally.
+Signal Radar automatically pauses for SIGNAL_RATE_LIMIT_PAUSE_HOURS (default: 4 hours) when a
+429 rate-limit response is received from LinkedIn. The global pause is tracked in `SignalRadarState.paused_until`.
 
-### Per-source failures (separate from global pause)
-- Each WatchedSource tracks consecutive_failures independently.
-- After MAX_CONSECUTIVE_FAILURES (default 3) consecutive errors on a single source, that source is auto-disabled (is_active=False) — distinct from the global pause.
-
-### Visibility (Django admin)
-- Navigate to **Signal Radar State** in the admin (singleton). The paused_until field shows the exact resume time when active.
-- The changelist surfaces a banner if any unhealthy sources are present (consecutive_failures >= 1).
-
-### Manual resume
-- Admin -> Signal Radar State -> action ** Resume Signal Radar globally** clears paused_until immediately.
-- Admin -> Signal Radar State -> action **Pause Signal Radar globally for 4 hours** sets it manually.
-
-### Configuration
-- SIGNAL_RATE_LIMIT_PAUSE_HOURS = 4 (in linkedin/conf.py) — default pause duration on 429.
+To check pause status: `/admin/linkedin/signalradarstate/`
+To manually resume: use the "Resume Signal Radar globally" admin action.
