@@ -1,6 +1,8 @@
 from django.contrib import admin, messages
 from django import forms
 from django.http import HttpResponse
+from django.utils import timezone
+from datetime import timedelta
 import csv
 
 from chat.models import ChatMessage
@@ -97,14 +99,48 @@ class WatchedSourceForm(forms.ModelForm):
         fields = "__all__"
 
 
+class StatusFilter(admin.SimpleListFilter):
+    title = "Status"
+    parameter_name = "status"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("healthy", "Healthy"),
+            ("stale", "Stale"),
+            ("failing", "Failing"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "healthy":
+            now = timezone.now()
+            healthy_ids = []
+            for source in queryset.filter(consecutive_failures=0, last_successful_poll_at__isnull=False):
+                threshold = now - timedelta(minutes=2 * source.cadence_minutes)
+                if source.last_successful_poll_at >= threshold:
+                    healthy_ids.append(source.id)
+            return queryset.filter(id__in=healthy_ids)
+        elif self.value() == "stale":
+            now = timezone.now()
+            stale_ids = []
+            for source in queryset.filter(consecutive_failures=0, last_poll_at__isnull=False):
+                threshold = now - timedelta(minutes=2 * source.cadence_minutes)
+                if source.last_poll_at < threshold:
+                    stale_ids.append(source.id)
+            return queryset.filter(id__in=stale_ids)
+        elif self.value() == "failing":
+            return queryset.filter(consecutive_failures__gte=1)
+        return queryset
+
+
 @admin.register(WatchedSource)
 class WatchedSourceAdmin(admin.ModelAdmin):
     form = WatchedSourceForm
     list_display = (
         "campaign", "kind", "display_name", "identifier",
         "is_active", "cadence_minutes", "last_poll_at", "consecutive_failures",
+        "last_successful_poll_at",
     )
-    list_filter = ("kind", "is_active", "campaign")
+    list_filter = ("kind", "is_active", "campaign", StatusFilter)
     search_fields = ("display_name", "identifier")
 
     actions = ["enable_selected_sources", "disable_selected_sources", "reset_failure_count", "poll_now"]
@@ -181,7 +217,26 @@ class SignalAdmin(admin.ModelAdmin):
 
 @admin.register(SignalRadarState)
 class SignalRadarStateAdmin(admin.ModelAdmin):
-    list_display = ("paused_until",)
+    list_display = ("paused_until", "paused_status", "paused_countdown")
+
+    def paused_status(self, obj):
+        from django.utils import timezone
+        if obj.paused_until and obj.paused_until > timezone.now():
+            return f"Currently paused: yes (until {obj.paused_until.strftime('%Y-%m-%d %H:%M UTC')})"
+        return "Currently paused: no"
+    paused_status.short_description = "Paused Status"
+
+    def paused_countdown(self, obj):
+        from django.utils import timezone
+        if obj.paused_until and obj.paused_until > timezone.now():
+            delta = obj.paused_until - timezone.now()
+            hours, remainder = divmod(int(delta.total_seconds()), 3600)
+            minutes = remainder // 60
+            if hours > 0:
+                return f"{hours}h {minutes}m remaining"
+            return f"{minutes}m remaining"
+        return ""
+    paused_countdown.short_description = "Countdown"
 
     actions = ["pause_polling_globally", "resume_polling_globally"]
 
