@@ -212,4 +212,112 @@ Run the probe from the operator's own workstation, not from MindPalace:
   to a remote box.
 - Your normal IP avoids "unusual login location" flags.
 - You can run headed Playwright and observe what LinkedIn returns.
-- No SSH friction; iterative debugging is faster.
+- No SSH friction; iterative debugging is faster.---
+
+## Operational Status (Change B)
+
+### What's NOT Working
+
+| Feature | Status | Change |
+|---------|--------|--------|
+| Polling daemon | Not running — systemd unit not installed | Change A (systemd units) |
+| fetchProfilePosts | Stub — not implemented | Change C (fetchProfilePosts) |
+| fetchCompanyPosts | Endpoint unverified — returns empty results | No confirmed fix yet |
+| fetchPostReactions | Endpoint unverified | No confirmed fix yet |
+| fetchPostComments | Endpoint unverified | No confirmed fix yet |
+| fetchPostReposts | Endpoint unverified | No confirmed fix yet |
+
+All engagement operations have been implemented in code but endpoint paths have not been
+verified against a live LinkedIn session. See "Endpoint verification status" section above.
+
+---
+
+## How to Verify the Daemon Is Running
+
+The polling daemon (`rundaemon`) is managed by a systemd user service (installed by Change A).
+
+**Check systemd service status:**
+```bash
+systemctl --user status openoutreach-rundaemon
+```
+
+Expected output when running:
+```
+● openoutreach-rundaemon.service - OpenOutreach Daemon
+     Loaded: loaded (/home/clawdbot/.config/systemd/user/openoutreach-rundaemon.service; enabled)
+     Active: active (running) since ...
+```
+
+Expected output when NOT running (expected if Change A not installed):
+```
+● openoutreach-rundaemon.service
+     Loaded: not found
+```
+
+**Run the smoke test:**
+```bash
+cd /home/clawdbot/openoutreach
+python manage.py smoke_test_signal_radar --target-company 1337
+```
+
+Expected output when LinkedIn operations work:
+```
+Signal Radar Smoke Test
+Target company: 1337
+Chrome CDP: ws://localhost:9222/devtools/browser/...
+Profile: your-username
+---
+  [PASS] fetchCompanyPosts: N items
+  [PASS] fetchPostReactions: N items
+  [PASS] fetchPostComments: N items
+  [PASS] fetchPostReposts: N items
+---
+Overall: PASS (exit 0)
+```
+
+Note: Zero items per operation is a PASS (valid — LinkedIn company 1337 may have no recent engagement).
+
+**Exit codes:**
+| Code | Meaning |
+|------|---------|
+| 0 | All operations passed |
+| 1 | At least one operation failed |
+| 2 | Setup error (no Chrome, no active LinkedInProfile) |
+
+**JSON output (for monitoring):**
+```bash
+python manage.py smoke_test_signal_radar --target-company 1337 --json
+```
+Output: `{"overall_pass": true, "exit_code": 0, "operations": {...}, "profile": "username"}`
+
+---
+
+## How to Read Poll Health from Admin
+
+After applying the database migration (`python manage.py migrate linkedin`), poll health fields
+are visible in the Django admin.
+
+**WatchedSource admin:** `/admin/linkedin/watchedsource/`
+- **Last successful poll at** column: shows the datetime of the last successful poll per source, or blank if never polled
+- **Status** filter (sidebar): filters by Healthy / Stale / Failing
+  - **Healthy**: zero consecutive failures AND last successful poll within 2× cadence
+  - **Stale**: zero consecutive failures but no recent poll (source is overdue)
+  - **Failing**: one or more consecutive failures
+
+**SignalRadarState admin:** `/admin/linkedin/signalradarstate/`
+- **Paused Status** field: shows "Currently paused: yes (until <datetime>)" or "Currently paused: no"
+- **Countdown** field: shows "2h 14m remaining" if paused
+
+To manually clear a rate-limit pause: use the "Resume Signal Radar globally" action in the SignalRadarState admin.
+
+---
+
+## Rate-Limit Pause Behavior
+
+*(This subsection is reserved for Change A documentation. When Change A is merged, its rate-limit pause docs will appear here.)*
+
+Signal Radar automatically pauses for SIGNAL_RATE_LIMIT_PAUSE_HOURS (default: 4 hours) when a
+429 rate-limit response is received from LinkedIn. The global pause is tracked in `SignalRadarState.paused_until`.
+
+To check pause status: `/admin/linkedin/signalradarstate/`
+To manually resume: use the "Resume Signal Radar globally" admin action.
