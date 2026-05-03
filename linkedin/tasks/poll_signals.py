@@ -30,14 +30,26 @@ logger = logging.getLogger(__name__)
 
 
 def _reschedule(source: WatchedSource) -> None:
-    """Reschedule the next poll for a watched source with ±25% jitter."""
+    """Reschedule the next poll with configurable jitter and stochastic skip.
+
+    Jitter formula: multiplier = 1 - (jitter_percent / 200) + (jitter_percent / 100) * random.random()
+    This produces a uniform distribution centered on cadence, ranging +/-jitter_percent/2 of cadence.
+
+    With probability SIGNAL_POLL_SKIP_PROBABILITY, delay is doubled to simulate a human skip.
+    """
+    from linkedin import conf
     from linkedin.tasks.scheduler import enqueue_poll_watched_source
 
-    jitter = random.uniform(0.75, 1.25)
-    delay_seconds = source.cadence_minutes * 60 * jitter
+    jitter_percent = conf.SIGNAL_POLL_JITTER_PERCENT
+    skip_prob = conf.SIGNAL_POLL_SKIP_PROBABILITY
+
+    multiplier = 1 - (jitter_percent / 200) + (jitter_percent / 100) * random.random()
+    delay_seconds = source.cadence_minutes * 60 * multiplier
+
+    if random.random() < skip_prob:
+        delay_seconds *= 2
 
     enqueue_poll_watched_source(source.id, delay_seconds=delay_seconds)
-
 
 def handle_poll_watched_source(task: Task, session, qualifiers: dict) -> None:
     """Handle a POLL_WATCHED_SOURCE task."""
