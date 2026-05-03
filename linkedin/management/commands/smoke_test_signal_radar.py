@@ -1,6 +1,6 @@
 """Django management command: smoke_test_signal_radar.
 
-Usage: python manage.py smoke_test_signal_radar [--target-company 1337] [--json]
+Usage: python manage.py smoke_test_signal_radar [--target-company 1337] [--json] [--fallback-post-urn URN]
 """
 from django.core.management.base import BaseCommand
 from linkedin.scripts.smoke_test import main as run_smoke_test
@@ -22,11 +22,18 @@ class Command(BaseCommand):
             dest="json_output",
             help="Output JSON"
         )
+        parser.add_argument(
+            "--fallback-post-urn",
+            default=None,
+            dest="fallback_post_urn",
+            help="URN of a known post to use for engagement ops when target company has no posts"
+        )
 
     def handle(self, *args, **options):
         exit_code = run_smoke_test(
             target_company=options["target_company"],
             json_output=options["json_output"],
+            fallback_post_urn=options["fallback_post_urn"],
         )
         if exit_code != 0:
             sys.exit(exit_code)
