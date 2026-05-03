@@ -1,0 +1,18 @@
+[Unit]
+Description=OpenOutreach Signal Radar Daemon
+After=network.target linkedin-chrome.service
+Requires=linkedin-chrome.service
+
+[Service]
+WorkingDirectory=/home/clawdbot/openoutreach
+Environment="VIRTUAL_ENV=/home/clawdbot/openoutreach/.venv"
+Environment="PATH=/home/clawdbot/openoutreach/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/clawdbot/openoutreach/.venv/bin/python \
+    /home/clawdbot/openoutreach/manage.py rundaemon
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
