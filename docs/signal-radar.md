@@ -19,13 +19,13 @@ Signal Radar discovers high-intent LinkedIn engagement signals and injects them 
 ## 2. Enabling
 
 1. Edit openoutreach/settings.py (or your override file):
-   `python
+   ```python
    SIGNAL_RADAR_ENABLED = True
-   `
+   ```
 2. Restart the daemon worker (Celery or systemd service):
-   `ash
+   ```bash
    sudo systemctl restart openoutreach-worker
-   `
+   ```
    Or restart the Celery process if using Celery directly.
 
 ---
@@ -121,8 +121,7 @@ When a 429 response is received from LinkedIn API, Signal Radar enters a **globa
 - All polling tasks are suspended for 4 hours
 - A SignalRadarState record is created/updated with paused_until = now + 4h
 - Manual override via admin:
-  - **Pause Polling Globally:** Sets pause to 
-ow + SIGNAL_RATE_LIMIT_PAUSE_HOURS
+  - **Pause Polling Globally:** Sets pause to now + SIGNAL_RATE_LIMIT_PAUSE_HOURS
   - **Resume Polling Globally:** Clears paused_until immediately
 
 Admin path: /admin/linkedin/signalradarstate/
@@ -213,6 +212,7 @@ Run the probe from the operator's own workstation, not from MindPalace:
 - Your normal IP avoids "unusual login location" flags.
 - You can run headed Playwright and observe what LinkedIn returns.
 - No SSH friction; iterative debugging is faster.
+
 ## Rate-Limit Pause Behavior
 
 Signal Radar implements an automatic rate-limit pause to back off when LinkedIn returns 429 responses.
@@ -236,3 +236,113 @@ Signal Radar implements an automatic rate-limit pause to back off when LinkedIn 
 
 ### Configuration
 - SIGNAL_RATE_LIMIT_PAUSE_HOURS = 4 (in linkedin/conf.py) — default pause duration on 429.
+
+---
+
+## Operational Status (Change B)
+
+### What's NOT Working
+
+| Feature | Status | Change |
+|---------|--------|--------|
+| Polling daemon | Not running — systemd unit not installed | Change A (systemd units) |
+| fetchProfilePosts | Stub — not implemented | Change C (fetchProfilePosts) |
+| fetchCompanyPosts | Endpoint unverified — returns empty results | No confirmed fix yet |
+| fetchPostReactions | Endpoint unverified | No confirmed fix yet |
+| fetchPostComments | Endpoint unverified | No confirmed fix yet |
+| fetchPostReposts | Endpoint unverified | No confirmed fix yet |
+
+All engagement operations have been implemented in code but endpoint paths have not been
+verified against a live LinkedIn session. See "Endpoint verification status" section above.
+
+---
+
+## How to Verify the Polling Daemon
+
+The Signal Radar polling daemon runs as a user-mode systemd service: `openoutreach-rundaemon.service`.
+
+### Check installation
+The unit file is installed by the operational hardening change's setup script. Verify presence:
+```bash
+systemctl --user list-unit-files openoutreach-rundaemon.service
+```
+
+### Check active state
+```bash
+systemctl --user is-active openoutreach-rundaemon.service
+```
+Expected outcomes:
+- `active` — daemon is running and polling on schedule
+- `inactive` — daemon is installed but not started (default until DEPLOY phase activates it)
+- `failed` — daemon crashed; check `journalctl --user -u openoutreach-rundaemon -n 100`
+
+### Activation
+The daemon is intentionally NOT enabled on initial install when `WatchedSource` records exist. Activation happens during DEPLOY phase after operator confirmation:
+```bash
+systemctl --user enable --now openoutreach-rundaemon.service
+```
+
+### Boot survival
+For the daemon to survive logout/reboot, the user must have linger enabled (one-time setup, requires sudo):
+```bash
+sudo loginctl enable-linger clawdbot
+```
+Confirm with: `loginctl show-user clawdbot | grep Linger` (should show `Linger=yes`).
+
+**Run the smoke test:**
+```bash
+cd /home/clawdbot/openoutreach
+python manage.py smoke_test_signal_radar --target-company 1337
+```
+
+Expected output when LinkedIn operations work:
+```
+Signal Radar Smoke Test
+Target company: 1337
+Chrome CDP: ws://localhost:9222/devtools/browser/...
+Profile: your-username
+---
+  [PASS] fetchCompanyPosts: N items
+  [PASS] fetchPostReactions: N items
+  [PASS] fetchPostComments: N items
+  [PASS] fetchPostReposts: N items
+---
+Overall: PASS (exit 0)
+```
+
+Note: Zero items per operation is a PASS (valid — LinkedIn company 1337 may have no recent engagement). If the target company has no recent posts, engagement ops (reactions/comments/reposts) will be marked SKIP. Use `--fallback-post-urn <urn>` to exercise those ops against a known post.
+
+**Exit codes:**
+| Code | Meaning |
+|------|---------|
+| 0 | All operations passed (at least one PASS, no FAILs) |
+| 1 | At least one operation failed, OR all ops skipped (insufficient signal) |
+| 2 | Setup error (no Chrome, no active LinkedInProfile) |
+
+**JSON output (for monitoring):**
+```bash
+python manage.py smoke_test_signal_radar --target-company 1337 --json
+```
+Output: `{"overall_pass": true, "exit_code": 0, "operations": {...}, "profile": "username"}`
+
+Each operation in the JSON output includes a `status` field: `"PASS"`, `"FAIL"`, or `"SKIP"`.
+
+---
+
+## How to Read Poll Health from Admin
+
+After applying the database migration (`python manage.py migrate linkedin`), poll health fields
+are visible in the Django admin.
+
+**WatchedSource admin:** `/admin/linkedin/watchedsource/`
+- **Last successful poll at** column: shows the datetime of the last successful poll per source, or blank if never polled
+- **Status** filter (sidebar): filters by Healthy / Stale / Failing
+  - **Healthy**: zero consecutive failures AND last successful poll within 2× cadence
+  - **Stale**: zero consecutive failures but no recent poll (source is overdue)
+  - **Failing**: one or more consecutive failures
+
+**SignalRadarState admin:** `/admin/linkedin/signalradarstate/`
+- **Paused Status** field: shows "Currently paused: yes (until <datetime>)" or "Currently paused: no"
+- **Countdown** field: shows "2h 14m remaining" if paused
+
+To manually clear a rate-limit pause: use the "Resume Signal Radar globally" action in the SignalRadarState admin.
