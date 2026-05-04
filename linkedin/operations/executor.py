@@ -106,23 +106,24 @@ class LinkedInOperationExecutor:
     ) -> ParseResult:
         """Fetch posts from a personal profile.
 
-        Note: This operation is not yet captured in the registry.
-        Returns NEEDS_RECON until the operation is captured.
-
         Args:
             profile_urn_or_vanity: Profile URN or vanity name
             start: Pagination offset
             count: Number of posts to fetch
 
         Returns:
-            ParseResult with NEEDS_RECON failure
+            ParseResult with list of ParsedProfilePost objects
         """
-        return ParseResult(
-            data=[],
-            pagination=PaginationInfo(has_more=False),
-            failure=FailureType.NEEDS_RECON,
-            failure_message="fetchProfilePosts is not yet captured - needs reconnaissance",
-        )
+        operation = get_operation("fetchProfilePosts")
+        if not operation or not operation.query_id:
+            return self._not_captured("fetchProfilePosts")
+
+        variables = {
+            "profileUrn": profile_urn_or_vanity,
+            "start": start,
+            "count": count,
+        }
+        return self._execute_operation(operation, variables)
 
     def fetch_post_detail(self, post_urn: str) -> ParseResult:
         """Fetch single post metadata.
@@ -285,7 +286,7 @@ class LinkedInOperationExecutor:
                 )
 
             # Parse response body
-            body_bytes = response.text()
+            body_bytes = response.body()
             if not body_bytes:
                 return ParseResult(
                     data=[],
@@ -349,7 +350,7 @@ class LinkedInOperationExecutor:
             activity_id = post_urn.replace("urn:li:share:", "")
             urn = f"urn:li:activity:{activity_id}"
 
-        return f"urn:li:fsd_socialDetail:({urn},{urn},urn:li:highlightedReply:-)"
+        return f"urn:li:fsd_socialDetail:({urn})"
 
     def _resolve_company_urn(self, company_urn_or_slug: str) -> str:
         """Resolve company identifier to organizationalPageUrn format.
@@ -391,7 +392,7 @@ class LinkedInOperationExecutor:
             response = self.client.get(search_url)
             if response.status == 200:
                 import json
-                data = json.loads(response.text())
+                data = json.loads(response.body())
                 # Extract company ID from search results
                 results = data.get("data", {}).get("searchDashCompaniesByKeywords", {}).get("elements", [])
                 if results:

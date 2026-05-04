@@ -60,6 +60,18 @@ class ParsedRepost:
 
 
 @dataclass
+class ParsedProfilePost:
+    """A single post from a profile feed."""
+    urn: str
+    author_name: str
+    text: str
+    url: Optional[str]
+    content_type: str
+    author_urn: Optional[str] = None
+    published_at: Optional[str] = None
+
+
+@dataclass
 class PaginationInfo:
     """Pagination metadata from LinkedIn responses."""
     has_more: bool
@@ -584,6 +596,136 @@ class RepostsParser(BaseParser):
 
 
 # ======================
+# Profile Posts Parser
+# ======================
+
+class ProfilePostsParser(BaseParser):
+    """Parser for fetchProfilePosts operation."""
+
+    operation_name = "fetchProfilePosts"
+
+    def parse(self, raw_response: dict) -> ParseResult:
+        """Extract profile posts from profile activity feed."""
+        try:
+            # Handle both wrapped {"data": {"posts": [...]}} and direct {"posts": [...]} (fixture format)
+            data = raw_response.get("data")
+            if data is None and "posts" in raw_response:
+                data = raw_response
+            if not data:
+                return self._shape_changed(raw_response, "missing data")
+
+            posts_container = data.get("posts")
+            if posts_container is None:
+                return self._shape_changed(raw_response, "missing posts")
+
+            if not isinstance(posts_container, list):
+                return self._shape_changed(raw_response, "posts is not a list")
+
+            if not posts_container:
+                return ParseResult(
+                    data=[],
+                    pagination=PaginationInfo(has_more=False),
+                    raw=raw_response,
+                )
+
+            posts = []
+            for entity in posts_container:
+                if not entity:
+                    continue
+
+                # Get post URN
+                urn = entity.get("entityUrn", "")
+
+                # Get author name (profile posts use actorName instead of author URN)
+                author_name = entity.get("actorName", "Unknown")
+
+                # Get text content (commentary field)
+                text = entity.get("commentary", "")
+
+                # Build post URL from entity URN
+                url = None
+                if urn:
+                    url = f"https://www.linkedin.com/feed/update/{urn}/"
+
+                # Best-effort author URN extraction
+                author_urn = None
+                author = entity.get("author")
+                if isinstance(author, dict):
+                    author_urn = author.get("urn")
+
+                # Best-effort published timestamp extraction
+                published_at = entity.get("postedAt") or entity.get("publishedAt")
+
+                posts.append(ParsedProfilePost(
+                    urn=urn,
+                    author_name=author_name,
+                    text=text,
+                    url=url,
+                    content_type=entity.get("type", ""),
+                    author_urn=author_urn,
+                    published_at=published_at,
+                ))
+
+            pagination = self._extract_pagination(data)
+            return ParseResult(data=posts, pagination=pagination, raw=raw_response)
+
+        except Exception as exc:
+            logger = _get_logger()
+            logger.warning("ProfilePostsParser failed: %s", exc)
+            return ParseResult(
+                data=[],
+                pagination=PaginationInfo(has_more=False),
+                failure=FailureType.PARTIAL_DATA,
+                failure_message=str(exc),
+                raw=raw_response,
+            )
+
+    def _extract_pagination(self, data: dict) -> PaginationInfo:
+        """Extract pagination info for profile posts.
+
+        Profile posts use metadata.paging.hasMore / nextStart path.
+        Falls back to BaseParser behavior if metadata path is absent.
+        """
+        metadata = data.get("metadata", {})
+        paging = metadata.get("paging", {})
+        if paging:
+            has_more = bool(paging.get("hasMore", False))
+            next_offset = paging.get("nextStart") if has_more else None
+            return PaginationInfo(
+                has_more=has_more,
+                next_offset=next_offset,
+            )
+
+        # No pagination metadata observed — warn and default to False
+        logger = _get_logger()
+        logger.warning("profile_posts pagination metadata not observed; defaulting has_more=False")
+        return PaginationInfo(has_more=False)
+
+    def _shape_changed(self, raw: dict, reason: str) -> ParseResult:
+        """Return RESPONSE_SHAPE_CHANGED failure."""
+        return ParseResult(
+            data=[],
+            pagination=PaginationInfo(has_more=False),
+            failure=FailureType.RESPONSE_SHAPE_CHANGED,
+            failure_message=f"Response shape changed: {reason}",
+            raw=raw,
+        )
+
+
+def parse_profile_posts(response_json: dict) -> ParseResult:
+    """Thin compatibility wrapper for ProfilePostsParser.
+
+    Args:
+        response_json: Raw API response dict
+
+    Returns:
+        ParseResult with parsed profile posts
+    """
+    parser = ProfilePostsParser()
+    return parser.parse(response_json)
+
+
+# ======================
 # Parser Registry
 # ======================
 
@@ -592,6 +734,7 @@ PARSERS = {
     "fetchPostComments": CommentsParser,
     "fetchPostReactions": ReactionsParser,
     "fetchPostReposts": RepostsParser,
+    "fetchProfilePosts": ProfilePostsParser,
 }
 
 

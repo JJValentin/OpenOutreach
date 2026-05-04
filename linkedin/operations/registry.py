@@ -108,13 +108,17 @@ REGISTRY: dict[str, Operation] = {
     ),
     "fetchProfilePosts": Operation(
         name="fetchProfilePosts",
-        query_id="",
+        query_id="voyagerFeedDashProfileUpdates.4af00b28d60ed0f1488018948daad822",
         method="GET",
-        variables_schema={},
-        pagination_strategy="none",
-        response_path="",
-        status="INFERRED_NOT_CAPTURED",
-        notes="Likely uses voyagerIdentityDashProfiles or feed query variant. Needs verification.",
+        variables_schema={
+            "profileUrn": "str",
+            "count": "int",
+            "start": "int",
+        },
+        pagination_strategy="offset",
+        response_path="data.posts",
+        status="CAPTURED_REQUIRES_PLAYWRIGHT_VALIDATION",
+        notes="Profile activity feed. Variables: profileUrn (URN or vanity), count (default 20), start (pagination offset). Requires playwright validation.",
     ),
     "fetchPostDetail": Operation(
         name="fetchPostDetail",

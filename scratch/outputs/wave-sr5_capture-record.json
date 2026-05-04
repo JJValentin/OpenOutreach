@@ -1,0 +1,21 @@
+{
+  "capture_metadata": {
+    "wave": "sr5_task-b",
+    "captured_at": "2026-05-04T21:25:00Z",
+    "target_url": "https://www.linkedin.com/in/joshuajvalentin/recent-activity/activity/",
+    "attached_tab_url": "https://www.linkedin.com/in/joshuajvalentin/recent-activity/all/",
+    "profile_urn": "urn:li:fsd_profile:ACoAABCPpPYBP2UJsb0r9X03h42CE6c5eu2sVuM",
+    "profile_id_vanity": "joshuajvalentin"
+  },
+  "extracted_operation": {
+    "query_id": "voyagerFeedDashProfileUpdates.4af00b28d60ed0f1488018948daad822",
+    "variables_structure": {
+      "count": 20,
+      "start": 0,
+      "profileUrn": "<urn:li:fsd_profile:...>"
+    },
+    "response_path": "data.posts",
+    "pagination_strategy": "offset",
+    "notes": "Profile activity feed - posts list from profile activity page"
+  }
+}

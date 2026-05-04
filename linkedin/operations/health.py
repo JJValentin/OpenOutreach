@@ -25,6 +25,7 @@ class FailureType(Enum):
     POST_UNAVAILABLE = "post_unavailable"
     PARTIAL_DATA = "partial_data"
     TEMPORARY_BLOCK = "temporary_block"
+    INFERRED_FROM_COMPANY_POSTS = "inferred_from_company_posts"
     NEEDS_RECON = "needs_recon"
 
 

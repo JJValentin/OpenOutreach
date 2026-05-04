@@ -24,8 +24,6 @@ def _get_executor(session):
 def list_own_profile_posts(session, since_days=30, limit=20):
     """Fetch authenticated user's posts from last N days."""
     executor = _get_executor(session)
-    # For now, use profile posts with self profile
-    # TODO: Add date filtering when fetchProfilePosts is captured
     result = executor.fetch_profile_posts(
         profile_urn_or_vanity="",
         start=0,
