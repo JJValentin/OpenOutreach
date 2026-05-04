@@ -132,3 +132,12 @@ class TestFetchPostDetail:
         executor = LinkedInOperationExecutor(mock_client())
         result = executor.fetch_post_detail("urn:li:activity:123")
         assert result.failure == FailureType.INFERRED_FROM_COMPANY_POSTS
+
+class TestNetworkErrorHandling:
+    def test_returns_network_error_on_exception(self):
+        """When the client raises an exception, executor returns NETWORK_ERROR."""
+        client = MagicMock()
+        client.get.side_effect = Exception("Connection reset")
+        executor = LinkedInOperationExecutor(client)
+        result = executor.fetch_profile_posts("testuser")
+        assert result.failure == FailureType.NETWORK_ERROR

@@ -22,6 +22,7 @@ class FailureType(Enum):
     AUTH_EXPIRED = "auth_expired"
     QUERY_ID_INVALID = "query_id_invalid"
     RESPONSE_SHAPE_CHANGED = "response_shape_changed"
+    NETWORK_ERROR = "network_error"
     POST_UNAVAILABLE = "post_unavailable"
     PARTIAL_DATA = "partial_data"
     TEMPORARY_BLOCK = "temporary_block"

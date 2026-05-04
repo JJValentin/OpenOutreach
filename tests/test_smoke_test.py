@@ -204,3 +204,74 @@ class TestSmokeTestJSONOutput:
                         assert op_name in ops, f"Missing operation '{op_name}' in JSON"
                         assert "pass" in ops[op_name], f"Missing 'pass' for {op_name}"
                         assert "count" in ops[op_name], f"Missing 'count' for {op_name}"
+
+    def test_include_profile_posts_flag_pass(self, db, active_profile):
+        """With --include-profile-posts and all ops succeed including fetchProfilePosts -> exit 0."""
+        mock_executor = MagicMock(spec=LinkedInOperationExecutor)
+        mock_executor.fetch_company_posts.return_value = make_success_result(with_posts=True)
+        mock_executor.fetch_post_reactions.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_comments.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reposts.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_profile_posts.return_value = make_success_result(with_posts=True)
+
+        with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
+            with patch("linkedin.scripts.smoke_test.get_chrome_ws_url",
+                       return_value="ws://localhost:9222/devtools/browser/test"):
+                with patch("linkedin.scripts.smoke_test.sync_playwright") as mock_pw:
+                    _patch_playwright(mock_pw)
+                    from linkedin.scripts.smoke_test import main
+                    exit_code = main(target_company="1337", json_output=False, include_profile_posts="joshuajvalentin")
+                    assert exit_code == 0, f"Expected exit 0, got {exit_code}"
+                    mock_executor.fetch_profile_posts.assert_called_once_with("joshuajvalentin")
+
+    def test_include_profile_posts_network_error(self, db, active_profile):
+        """With --include-profile-posts, fetchProfilePosts fails with NETWORK_ERROR -> exit 1."""
+        mock_executor = MagicMock(spec=LinkedInOperationExecutor)
+        mock_executor.fetch_company_posts.return_value = make_success_result(with_posts=True)
+        mock_executor.fetch_post_reactions.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_comments.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reposts.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_profile_posts.return_value = make_failure_result(FailureType.NETWORK_ERROR)
+
+        with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
+            with patch("linkedin.scripts.smoke_test.get_chrome_ws_url",
+                       return_value="ws://localhost:9222/devtools/browser/test"):
+                with patch("linkedin.scripts.smoke_test.sync_playwright") as mock_pw:
+                    _patch_playwright(mock_pw)
+                    from linkedin.scripts.smoke_test import main
+                    exit_code = main(target_company="1337", json_output=False, include_profile_posts="joshuajvalentin")
+                    assert exit_code == 1, f"Expected exit 1 for NETWORK_ERROR, got {exit_code}"
+
+    def test_json_includes_profile_posts_when_flag_set(self, db, active_profile):
+        """JSON output includes fetchProfilePosts when --include-profile-posts is set."""
+        import json
+        mock_executor = MagicMock(spec=LinkedInOperationExecutor)
+        mock_executor.fetch_company_posts.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reactions.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_comments.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_post_reposts.return_value = make_success_result(with_posts=False)
+        mock_executor.fetch_profile_posts.return_value = make_success_result(with_posts=True)
+
+        with patch("linkedin.scripts.smoke_test.LinkedInOperationExecutor", return_value=mock_executor):
+            with patch("linkedin.scripts.smoke_test.get_chrome_ws_url",
+                       return_value="ws://localhost:9222/devtools/browser/test"):
+                with patch("linkedin.scripts.smoke_test.sync_playwright") as mock_pw:
+                    _patch_playwright(mock_pw)
+                    printed_lines = []
+                    with patch("builtins.print", side_effect=lambda *a, **kw: printed_lines.append(str(a[0]) if a else "")):
+                        from linkedin.scripts.smoke_test import main
+                        exit_code = main(target_company="1337", json_output=True, include_profile_posts="joshuajvalentin")
+
+                    json_line = None
+                    for line in printed_lines:
+                        try:
+                            obj = json.loads(line)
+                            json_line = obj
+                            break
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+
+                    assert json_line is not None, f"No valid JSON in output: {printed_lines}"
+                    ops = json_line["operations"]
+                    assert "fetchProfilePosts" in ops, f"Missing fetchProfilePosts in operations: {list(ops.keys())}"
+                    assert ops["fetchProfilePosts"]["status"] == "PASS", f"Expected PASS, got {ops['fetchProfilePosts']['status']}"

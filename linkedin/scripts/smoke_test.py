@@ -129,7 +129,7 @@ def compute_exit_code(ops_results: list) -> int:
     return EXIT_FAIL
 
 
-def main(target_company: str = "1337", json_output: bool = False, fallback_post_urn: Optional[str] = None):
+def main(target_company: str = "1337", json_output: bool = False, fallback_post_urn: Optional[str] = None, include_profile_posts: Optional[str] = None):
     """Run the smoke test and return exit code."""
     # 1. Look up an active LinkedInProfile
     profile = LinkedInProfile.objects.filter(active=True).first()
@@ -260,6 +260,14 @@ def main(target_company: str = "1337", json_output: bool = False, fallback_post_
         ops_results.append(OpResult(name="fetchPostReposts", status=STATUS_SKIP, count=0,
                                     error="No posts available; skipped"))
 
+    # fetchProfilePosts (if requested)
+    if include_profile_posts:
+        result = run_operation(
+            executor, "fetchProfilePosts",
+            executor.fetch_profile_posts, include_profile_posts
+        )
+        ops_results.append(result)
+
     # Summary
     exit_code = compute_exit_code(ops_results)
     overall_pass = exit_code == EXIT_OK
@@ -291,9 +299,12 @@ if __name__ == "__main__":
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--fallback-post-urn", default=None,
                         help="URN of a known post to use for engagement ops when target company has no posts")
+    parser.add_argument("--include-profile-posts", default=None, metavar="VANITY",
+                        help="Run fetchProfilePosts smoke against this profile vanity")
     args = parser.parse_args()
     sys.exit(main(
         target_company=args.target_company,
         json_output=args.json,
         fallback_post_urn=args.fallback_post_urn,
+        include_profile_posts=args.include_profile_posts,
     ))

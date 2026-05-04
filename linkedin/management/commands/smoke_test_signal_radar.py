@@ -28,12 +28,20 @@ class Command(BaseCommand):
             dest="fallback_post_urn",
             help="URN of a known post to use for engagement ops when target company has no posts"
         )
+        parser.add_argument(
+            "--include-profile-posts",
+            metavar="VANITY",
+            help="Run fetchProfilePosts smoke against this profile vanity (e.g. joshuajvalentin)",
+            default=None,
+            dest="include_profile_posts",
+        )
 
     def handle(self, *args, **options):
         exit_code = run_smoke_test(
             target_company=options["target_company"],
             json_output=options["json_output"],
             fallback_post_urn=options["fallback_post_urn"],
+            include_profile_posts=options["include_profile_posts"],
         )
         if exit_code != 0:
             sys.exit(exit_code)
