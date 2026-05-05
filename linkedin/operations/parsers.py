@@ -279,7 +279,14 @@ class CommentsParser(BaseParser):
 
             inner_data = data.get("data", {})
             comments_container = inner_data.get("socialDashCommentsBySocialDetail")
-            if not comments_container:
+            if comments_container is None:
+                if "socialDashCommentsBySocialDetail" in inner_data:
+                    # LinkedIn returns null when there are no comments — valid empty state
+                    return ParseResult(
+                        data=[],
+                        pagination=PaginationInfo(has_more=False),
+                        raw=raw_response,
+                    )
                 return self._shape_changed(raw_response, "missing socialDashCommentsBySocialDetail")
 
             # Use *elements (URNs) - resolve actual data from included array
@@ -397,7 +404,14 @@ class ReactionsParser(BaseParser):
 
             inner_data = data.get("data", {})
             reactions_container = inner_data.get("socialDashReactionsByReactionType")
-            if not reactions_container:
+            if reactions_container is None:
+                if "socialDashReactionsByReactionType" in inner_data:
+                    # LinkedIn returns null when there are no reactions — valid empty state
+                    return ParseResult(
+                        data=[],
+                        pagination=PaginationInfo(has_more=False),
+                        raw=raw_response,
+                    )
                 return self._shape_changed(raw_response, "missing socialDashReactionsByReactionType")
 
             # Use *elements (URNs) - resolve actual data from included array
@@ -504,11 +518,18 @@ class RepostsParser(BaseParser):
             # LinkedIn wraps response in data.data.feedDashReshareFeedByReshareFeed
             inner_data = data.get("data", {})
             reposts_container = inner_data.get("feedDashReshareFeedByReshareFeed")
-            if not reposts_container:
+            if reposts_container is None:
+                if "feedDashReshareFeedByReshareFeed" in inner_data:
+                    # LinkedIn returns null when there are no reposts — valid empty state
+                    return ParseResult(
+                        data=[],
+                        pagination=PaginationInfo(has_more=False),
+                        raw=raw_response,
+                    )
                 return self._shape_changed(raw_response, "missing feedDashReshareFeedByReshareFeed")
 
-            # Use *elements (URNs) - resolve actual data from included array
-            element_urns = reposts_container.get("*elements", [])
+            # Use *elements (URNs) or elements — LinkedIn uses both across different endpoints
+            element_urns = reposts_container.get("*elements") or reposts_container.get("elements", [])
             if not element_urns:
                 return ParseResult(
                     data=[],
@@ -605,16 +626,100 @@ class ProfilePostsParser(BaseParser):
     operation_name = "fetchProfilePosts"
 
     def parse(self, raw_response: dict) -> ParseResult:
-        """Extract profile posts from profile activity feed."""
+        """Extract profile posts from profile activity feed.
+
+        Handles two response formats:
+        - Legacy: data.posts array (backward compat with fixture/tests)
+        - GraphQL: data.data.feedDashProfileUpdatesByMemberShareFeed.*elements
+                   with URNs resolved from top-level included array
+        """
         try:
-            # Handle both wrapped {"data": {"posts": [...]}} and direct {"posts": [...]} (fixture format)
-            data = raw_response.get("data")
-            if data is None and "posts" in raw_response:
-                data = raw_response
-            if not data:
+            top_data = raw_response.get("data")
+            # ---- Legacy / fixture format: posts at top level (no data.data nesting) ----
+            if top_data is None and "posts" in raw_response:
+                top_data = raw_response
+            if not top_data:
                 return self._shape_changed(raw_response, "missing data")
 
-            posts_container = data.get("posts")
+
+            # ---- Try GraphQL format first: data.data.feedDashProfileUpdatesByMemberShareFeed ----
+            inner_data = top_data.get("data")
+            if inner_data:
+                feed_container = inner_data.get("feedDashProfileUpdatesByMemberShareFeed")
+                if feed_container and isinstance(feed_container, dict):
+                    element_urns = feed_container.get("*elements", [])
+                    if element_urns is not None and isinstance(element_urns, list):
+                        # Build URN → entity lookup from included array
+                        # included can be at top level OR nested inside data (alongside data.data)
+                        included = raw_response.get("included", [])
+                        if not included:
+                            included = top_data.get("included", [])
+                        included_by_urn = {}
+                        for item in included:
+                            ent_urn = item.get("entityUrn")
+                            if ent_urn:
+                                included_by_urn[ent_urn] = item
+
+                        # Resolve each element URN
+                        posts = []
+                        for urn in element_urns:
+                            if not urn:
+                                continue
+                            entity = included_by_urn.get(urn)
+                            if not entity:
+                                continue
+
+                            # Text: prefer commentary, fall back to text
+                            text = entity.get("commentary") or entity.get("text", "")
+
+                            # Author name
+                            author_name = entity.get("actorName", "Unknown")
+
+                            # Author URN
+                            author_urn = entity.get("authorUrn")
+
+                            # published_at from created.time (epoch ms) → ISO string
+                            published_at = None
+                            created = entity.get("created", {})
+                            if isinstance(created, dict):
+                                epoch_ms = created.get("time")
+                                if epoch_ms:
+                                    from datetime import datetime
+                                    published_at = datetime.fromtimestamp(
+                                        epoch_ms / 1000.0
+                                    ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+                            # URL from entity URN
+                            url = f"https://www.linkedin.com/feed/update/{urn}/" if urn else None
+
+                            # type / content_type
+                            content_type = entity.get("$type", "") or entity.get("type", "")
+
+                            posts.append(ParsedProfilePost(
+                                urn=urn,
+                                author_name=author_name,
+                                text=text,
+                                url=url,
+                                content_type=content_type,
+                                author_urn=author_urn,
+                                published_at=published_at,
+                            ))
+
+                        # Pagination from feedContainer.paging
+                        paging = feed_container.get("paging", {})
+                        pagination = PaginationInfo(
+                            has_more=bool(paging.get("hasMore", False)),
+                            next_offset=paging.get("start") + paging.get("count", 0)
+                                if paging.get("hasMore") else None,
+                            total=paging.get("total"),
+                        )
+                        return ParseResult(data=posts, pagination=pagination, raw=raw_response)
+
+            # ---- Try legacy format: data.posts array ----
+            if "posts" not in top_data:
+                return self._shape_changed(raw_response, "missing posts")
+
+            posts_container = top_data.get("posts")
             if posts_container is None:
                 return self._shape_changed(raw_response, "missing posts")
 
@@ -666,7 +771,7 @@ class ProfilePostsParser(BaseParser):
                     published_at=published_at,
                 ))
 
-            pagination = self._extract_pagination(data)
+            pagination = self._extract_pagination(top_data)
             return ParseResult(data=posts, pagination=pagination, raw=raw_response)
 
         except Exception as exc:

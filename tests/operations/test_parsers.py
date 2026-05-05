@@ -41,30 +41,56 @@ class TestCompanyPostsParser:
 
 
 class TestCommentsParser:
+    def test_parse_null_returns_empty(self):
+        """LinkedIn returns null when there are no comments — treat as empty, not shape changed."""
+        parser = CommentsParser()
+        result = parser.parse({"data": {"data": {"socialDashCommentsBySocialDetail": None}}})
+        assert result.failure is None
+        assert len(result.data) == 0
+
+    def test_parse_missing_key_returns_shape_changed(self):
+        parser = CommentsParser()
+        result = parser.parse({"data": {"data": {"wrong_key": {}}}})
+        assert result.failure == FailureType.RESPONSE_SHAPE_CHANGED
+
     def test_parse_empty_response(self):
         parser = CommentsParser()
         result = parser.parse({"data": {"socialDashCommentsBySocialDetail": None}})
         assert result.failure == FailureType.RESPONSE_SHAPE_CHANGED
 
-    def test_parse_shape_changed(self):
-        parser = CommentsParser()
-        result = parser.parse({"data": {"wrong_key": {}}})
-        assert result.failure == FailureType.RESPONSE_SHAPE_CHANGED
-
 
 class TestReactionsParser:
+    def test_parse_null_returns_empty(self):
+        """LinkedIn returns null when there are no reactions — treat as empty, not shape changed."""
+        parser = ReactionsParser()
+        result = parser.parse({"data": {"data": {"socialDashReactionsByReactionType": None}}})
+        assert result.failure is None
+        assert len(result.data) == 0
+
+    def test_parse_missing_key_returns_shape_changed(self):
+        parser = ReactionsParser()
+        result = parser.parse({"data": {"data": {"wrong_key": {}}}})
+        assert result.failure == FailureType.RESPONSE_SHAPE_CHANGED
+
     def test_parse_empty_response(self):
         parser = ReactionsParser()
         result = parser.parse({"data": {"socialDashReactionsByThreadUrn": None}})
         assert result.failure == FailureType.RESPONSE_SHAPE_CHANGED
 
-    def test_parse_shape_changed(self):
-        parser = ReactionsParser()
-        result = parser.parse({"data": {"wrong_key": {}}})
-        assert result.failure == FailureType.RESPONSE_SHAPE_CHANGED
-
 
 class TestRepostsParser:
+    def test_parse_null_returns_empty(self):
+        """LinkedIn returns null when there are no reposts — treat as empty, not shape changed."""
+        parser = RepostsParser()
+        result = parser.parse({"data": {"data": {"feedDashReshareFeedByReshareFeed": None}}})
+        assert result.failure is None
+        assert len(result.data) == 0
+
+    def test_parse_missing_key_returns_shape_changed(self):
+        parser = RepostsParser()
+        result = parser.parse({"data": {"data": {"wrong_key": {}}}})
+        assert result.failure == FailureType.RESPONSE_SHAPE_CHANGED
+
     def test_parse_empty_response(self):
         parser = RepostsParser()
         result = parser.parse({"data": {"reshareFeedByTargetUrn": None}})

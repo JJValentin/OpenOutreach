@@ -34,6 +34,9 @@ class _FetchResponse:
     def text(self) -> str:
         return self._text
 
+    def body(self) -> bytes:
+        return self._text.encode("utf-8")
+
 
 VOYAGER_REQUEST_TIMEOUT_MS = 30_000
 
@@ -62,6 +65,8 @@ class PlaywrightLinkedinAPI:
             'csrf-token': jsessionid,
             'x-li-lang': 'en_US',
             'x-restli-protocol-version': '2.0.0',
+            'Origin': 'https://www.linkedin.com',
+            'Referer': 'https://www.linkedin.com/',
         }
 
     # ── Transport ────────────────────────────────────────────────────

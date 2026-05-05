@@ -107,7 +107,7 @@ class LinkedInOperationExecutor:
         """Fetch posts from a personal profile.
 
         Args:
-            profile_urn_or_vanity: Profile URN or vanity name
+            profile_urn_or_vanity: Profile URN (urn:li:fsd_profile:...) or vanity name
             start: Pagination offset
             count: Number of posts to fetch
 
@@ -118,8 +118,36 @@ class LinkedInOperationExecutor:
         if not operation or not operation.query_id:
             return self._not_captured("fetchProfilePosts")
 
+        # Resolve vanity name to URN if needed (LinkedIn GraphQL now requires fsd_profile URN)
+        profile_urn = profile_urn_or_vanity
+        if not profile_urn_or_vanity.startswith("urn:li:fsd_profile:"):
+            try:
+                profile_result = self.client.get_profile(public_identifier=profile_urn_or_vanity)
+                # get_profile returns tuple (profile_dict, other) or (None, None) on failure
+                if isinstance(profile_result, tuple) and len(profile_result) >= 1:
+                    extracted = profile_result[0]
+                else:
+                    extracted = profile_result
+                # resolved from extracted dict
+                resolved = extracted.get("urn") if extracted else None
+                if not resolved:
+                    return ParseResult(
+                        data=[],
+                        pagination=PaginationInfo(has_more=False),
+                        failure=FailureType.PARTIAL_DATA,
+                        failure_message="Could not resolve profile URN from vanity name",
+                    )
+                profile_urn = resolved
+            except Exception as exc:
+                return ParseResult(
+                    data=[],
+                    pagination=PaginationInfo(has_more=False),
+                    failure=FailureType.PARTIAL_DATA,
+                    failure_message=f"Failed to resolve profile URN: {exc}",
+                )
+
         variables = {
-            "profileUrn": profile_urn_or_vanity,
+            "profileUrn": profile_urn,
             "start": start,
             "count": count,
         }

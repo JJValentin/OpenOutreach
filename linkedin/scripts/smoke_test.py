@@ -166,7 +166,14 @@ def main(target_company: str = "1337", json_output: bool = False, fallback_post_
         # Connect to existing Chrome via CDP
         browser = playwright.chromium.connect_over_cdp(ws_url)
         context = browser.contexts[0] if browser.contexts else browser.new_context()
-        page = context.pages[0] if context.pages else context.new_page()
+        # Find LinkedIn page; DevTools or other tabs may be pages[0]
+        page = None
+        for ctx_page in context.pages:
+            if 'linkedin.com' in ctx_page.url:
+                page = ctx_page
+                break
+        if not page:
+            page = context.pages[0] if context.pages else context.new_page()
 
         class AccountSessionLike:
             def __init__(self, page, context, profile):

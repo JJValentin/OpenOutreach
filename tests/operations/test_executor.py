@@ -79,6 +79,8 @@ class TestFetchProfilePosts:
 
         client = MagicMock()
         client.get.return_value = mock_response_with_json(fixture_response)
+        # Mock get_profile so the vanity resolution succeeds
+        client.get_profile.return_value = ({"urn": "urn:li:fsd_profile:TEST123"}, {})
 
         executor = LinkedInOperationExecutor(client)
         result = executor.fetch_profile_posts("test-vanity", start=0, count=10)
@@ -103,6 +105,8 @@ class TestFetchProfilePosts:
 
         client = MagicMock()
         client.get.return_value = mock_response_with_json(bad_response)
+        # Mock get_profile so the vanity resolution succeeds; parser then sees bad_response
+        client.get_profile.return_value = ({"urn": "urn:li:fsd_profile:TEST123"}, {})
 
         executor = LinkedInOperationExecutor(client)
         result = executor.fetch_profile_posts("test-vanity", start=0, count=10)
@@ -137,7 +141,11 @@ class TestNetworkErrorHandling:
     def test_returns_network_error_on_exception(self):
         """When the client raises an exception, executor returns NETWORK_ERROR."""
         client = MagicMock()
+        # Use a vanity name that triggers get_profile call
         client.get.side_effect = Exception("Connection reset")
+        # Mock get_profile to avoid crashing before get() is called
+        client.get_profile.return_value = ({"urn": "urn:li:fsd_profile:TEST123"}, {})
+
         executor = LinkedInOperationExecutor(client)
         result = executor.fetch_profile_posts("testuser")
         assert result.failure == FailureType.NETWORK_ERROR
