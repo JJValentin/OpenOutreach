@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import random
 import threading
 import time
@@ -19,12 +20,13 @@ from linkedin.conf import (
     ACTIVE_TIMEZONE,
     CAMPAIGN_CONFIG,
     ENABLE_ACTIVE_HOURS,
+    ENABLE_FREEMIUM_KIT,
     REST_DAYS,
 )
 from linkedin.diagnostics import failure_diagnostics
 from linkedin.exceptions import AuthenticationError, BrowserUnresponsiveError
 from linkedin.ml.qualifier import BayesianQualifier, KitQualifier
-from linkedin.models import Task
+from linkedin.models import Campaign, Task, WatchedSource
 from linkedin.tasks.check_pending import handle_check_pending
 from linkedin.tasks.connect import handle_connect
 from linkedin.tasks.follow_up import handle_follow_up
@@ -34,13 +36,24 @@ from linkedin.tasks.inject_signal_profiles import handle_inject_signal_profiles
 
 logger = logging.getLogger(__name__)
 
+
+def handle_inject_signal_profiles_task(task, session, qualifiers):
+    campaign = getattr(session, "campaign", None)
+    if campaign is None:
+        campaign_id = (task.payload or {}).get("campaign_id")
+        campaign = Campaign.objects.filter(pk=campaign_id).first()
+    if campaign is None:
+        raise RuntimeError("inject_signal_profiles requires task payload campaign_id")
+    handle_inject_signal_profiles(campaign)
+
+
 _HANDLERS = {
     Task.TaskType.CONNECT: handle_connect,
     Task.TaskType.CHECK_PENDING: handle_check_pending,
     Task.TaskType.FOLLOW_UP: handle_follow_up,
     Task.TaskType.POLL_WATCHED_SOURCE: handle_poll_watched_source,
     Task.TaskType.POLL_OWN_POSTS: handle_poll_own_posts,
-    Task.TaskType.INJECT_SIGNAL_PROFILES: handle_inject_signal_profiles,
+    Task.TaskType.INJECT_SIGNAL_PROFILES: handle_inject_signal_profiles_task,
     Task.TaskType.RECOMPUTE_SIGNAL_SCORES: handle_recompute_signal_scores,
 }
 
@@ -152,28 +165,46 @@ def sleep_with_heartbeat(seconds: float, heartbeat: Heartbeat, context: str) -> 
         heartbeat.maybe_log(context)
 
 
+def _handle_task_watchdog_timeout(task, session, timeout_s: int, *, exit_process: bool = True) -> None:
+    """Record a task watchdog timeout and terminate the wedged daemon.
+
+    Closing Playwright from a timer thread is not guaranteed to unwind the
+    blocked sync call. A prior timeout left the daemon alive, the task stuck
+    RUNNING, and the process burning one CPU core for days. Therefore the
+    watchdog records the task as FAILED first, closes the browser best-effort,
+    then exits the process so systemd can restart a clean worker.
+    """
+    logger.error(
+        "Task watchdog fired on %s after %ds — marking failed and closing browser",
+        task, timeout_s,
+    )
+    try:
+        task.mark_failed()
+    except Exception:
+        logger.exception("task.mark_failed() raised inside watchdog")
+    try:
+        session.close()
+    except Exception:
+        logger.debug("session.close() raised inside watchdog", exc_info=True)
+    if exit_process:
+        logger.error("Exiting daemon after task watchdog timeout; systemd will restart it")
+        os._exit(124)
+
+
 def run_task_with_watchdog(handler, task, session, qualifiers) -> None:
     """Execute *handler* under a per-task hard ceiling.
 
-    On timeout, closes the browser session to unwedge Playwright. The
-    handler's next call into the closed session raises (Playwright error),
-    which propagates out and the daemon's generic-except path marks the
-    task FAILED; reconcile re-creates it on the next idle cycle. If the
-    handler somehow returns despite the timer firing, we raise
-    ``BrowserUnresponsiveError`` so the task is still marked failed.
+    On timeout, record the task as FAILED, close the browser best-effort, and
+    hard-exit the daemon. Python threads cannot safely interrupt every stuck
+    Playwright sync call, so a process restart is the only reliable recovery
+    boundary after the watchdog fires.
     """
     timeout_s = TASK_WATCHDOG_SECONDS.get(task.task_type, 10 * 60)
     fired = threading.Event()
 
     def _unwedge():
         fired.set()
-        logger.error(
-            "Task watchdog fired on %s after %ds — closing browser", task, timeout_s,
-        )
-        try:
-            session.close()
-        except Exception:
-            logger.debug("session.close() raised inside watchdog", exc_info=True)
+        _handle_task_watchdog_timeout(task, session, timeout_s)
 
     timer = threading.Timer(timeout_s, _unwedge)
     timer.daemon = True
@@ -304,8 +335,8 @@ def run_daemon(session):
 
     cfg = CAMPAIGN_CONFIG
 
-    # Load kit model for freemium campaigns
-    kit = fetch_kit()
+    # Load kit model for freemium campaigns (disabled unless ENABLE_FREEMIUM_KIT)
+    kit = fetch_kit() if ENABLE_FREEMIUM_KIT else None
     if kit:
         freemium_campaign = import_freemium_campaign(kit["config"])
         if freemium_campaign:
@@ -370,9 +401,15 @@ def run_daemon(session):
                 rhythm.reset()
             continue
 
-        campaign = Campaign.objects.filter(pk=task.payload.get("campaign_id")).first()
+        campaign_id = task.payload.get("campaign_id")
+        if campaign_id is None and task.payload.get("watched_source_id"):
+            # Signal-radar poll tasks key on watched_source_id, not campaign_id —
+            # resolve the campaign from the WatchedSource it targets.
+            ws = WatchedSource.objects.filter(pk=task.payload["watched_source_id"]).first()
+            campaign_id = ws.campaign_id if ws else None
+        campaign = Campaign.objects.filter(pk=campaign_id).first()
         if not campaign:
-            logger.error("Campaign %s not found", task.payload.get("campaign_id"))
+            logger.error("Campaign %s not found", campaign_id)
             task.mark_failed()
             continue
 

@@ -50,6 +50,15 @@ ENABLE_ACTIVE_HOURS = True
 ACTIVE_START_HOUR = 9   # inclusive, local time
 ACTIVE_END_HOUR = 19    # exclusive, local time
 ACTIVE_TIMEZONE = system_timezone()
+
+# ----------------------------------------------------------------------
+# Freemium kit. When True, the daemon downloads the hosted "Freemium
+# Outreach" kit from HuggingFace at startup and auto-joins all active
+# users to that campaign. Set to False for installs that run only their
+# own campaigns (otherwise the freemium campaign is re-created and
+# re-attached on every daemon start).
+# ----------------------------------------------------------------------
+ENABLE_FREEMIUM_KIT = False
 REST_DAYS = (5, 6)      # 0=Mon ... 6=Sun; default Sat+Sun off
 
 # ----------------------------------------------------------------------
@@ -88,3 +97,24 @@ SIGNAL_RATE_LIMIT_PAUSE_HOURS = 4
 SIGNAL_MAX_ACQUISITION_BONUS = 0.25
 SIGNAL_POLL_JITTER_PERCENT = 25
 SIGNAL_POLL_SKIP_PROBABILITY = 0.07
+
+# Global/manual lead safety controls. Public identifiers in this set are never
+# eligible for enrichment, qualification, connection, pending checks, or follow-up.
+# Use for competitors, peer vendors, accidental contacts, and Joshua overrides.
+MANUAL_BLOCKED_PUBLIC_IDS = {
+    "ai-automation-network",
+    "rafal-glaz",
+    "bradleyglare",
+    "lan-lisec-179864334",
+    "saeedezzati",
+    "natalliaray",
+    "robert-kirby-gen-x-capitalist",
+    "abdulrehmanmfaial",
+    "melihia",
+    "luke-pierce-boom-automations",
+    "aditi-jain-ai-automation",
+    "rbabicz",
+    "victoriabanasz",
+    "mike-futia-108709126",
+    "manish-mandot",
+}
