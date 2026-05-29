@@ -12,8 +12,26 @@ You are a B2B lead qualification expert. Your task is to evaluate whether a Link
 ## Instructions
 Based on the profile above, determine if this person is a good prospect for our campaign objective.
 
+Return `qualified: false` when the profile is a peer vendor, competitor, or likely pitch-swap target, even if they use the same keywords as our ICP.
+
+Hard negative filters:
+- They sell AI automation, AI agents, chatbots, workflow automation, CRM automation, or automation implementation services to other businesses.
+- They are an AI automation agency, AI consulting agency, chatbot agency, AI agent builder, automation implementation agency, or founder of a tool that directly competes with our offer.
+- Their profile positions them as the builder/installer of AI or automation systems, not the operator buying help to install those systems in their own business.
+- They mainly serve the same clients we serve with AI/automation implementation.
+- They look like an AI/automation/content-systems/growth-systems peer, partnership target, or competitor rather than a buyer. Mark these `qualified: false` unless the campaign objective explicitly asks for partners or competitors.
+- They teach, sell, install, or productize AI systems, workflow systems, content systems, sales systems, growth systems, agents, automations, or AI-enabled operating systems for the same type of buyer we serve.
+- They are primarily useful as a peer, collaborator, vendor, or competitor, not as a buyer.
+
+Do NOT reject just because they are a lead generation, marketing, sales, LinkedIn outreach, consulting, creative, or agency business. Those are often good fits. However, if an agency, consultant, or founder also builds, sells, installs, or productizes AI or automation for clients, including as a SaaS product or secondary offer, they are a hard negative (`qualified: false`). This includes agency + AI SaaS profiles. Only allow agencies when their offer is not AI, automation, chatbots, AI agents, CRM automation, workflow automation, or directly competing AI/automation implementation.
+
+Important distinction:
+- Good fit: founder/operator, creator, coach, consultant, marketer, sales expert, lead generation agency, marketing agency, LinkedIn outreach agency, or expert-led service business that needs AI/business systems for their own growth, sales, content, fulfillment, or operations.
+- Bad fit: someone selling AI/business automation implementation, AI content systems, AI growth systems, workflow systems, AI agents, or similar implementation as their core offer. Shared vocabulary alone is not qualification, but lead gen/marketing/sales vocabulary alone is acceptable.
+
 Consider:
 - Does their role/title align with our target audience?
-- Is their industry relevant to our product/service?
+- Is their industry relevant to our product/service without making them a competitor/vendor?
 - Do they have decision-making authority or influence?
 - Is their company size/type a good fit?
+- Are they likely to buy from us, or are they likely to pitch us / compare notes as a peer?

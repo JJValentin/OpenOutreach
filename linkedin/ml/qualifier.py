@@ -65,7 +65,7 @@ def qualify_with_llm(profile_text: str, product_docs: str, campaign_objective: s
     agent = Agent(
         get_llm_model(),
         output_type=QualificationDecision,
-        model_settings={"temperature": 0.7, "timeout": 60},
+        model_settings={"temperature": 0, "timeout": 60},
     )
     decision = agent.run_sync(prompt).output
 

@@ -44,6 +44,7 @@ def fetch_qualification_candidates(session):
 def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
     """Qualify one unlabelled profile via BALD/auto-decision/LLM. Returns public_id or None."""
     from linkedin.ml.qualifier import qualify_with_llm, format_prediction
+    from linkedin.safety import is_competitor_or_peer_risk
 
     candidates = fetch_qualification_candidates(session)
     if not candidates:
@@ -80,14 +81,27 @@ def run_qualification(session, qualifier: BayesianQualifier) -> str | None:
         pred_prob, entropy, std = result
         stats = format_prediction(pred_prob, entropy, std, qualifier.n_obs)
         sel = f", {selection_score[0]}={selection_score[1]:.4f}" if selection_score else ""
-        logger.debug("%s (%s%s) — querying LLM", public_id, stats, sel)
+        logger.debug("%s (%s%s) — fetching profile text", public_id, stats, sel)
     else:
-        logger.debug("%s GP not fitted (%d obs) — querying LLM", public_id, qualifier.n_obs)
+        logger.debug("%s GP not fitted (%d obs) — fetching profile text", public_id, qualifier.n_obs)
 
     profile_text = _fetch_profile_text(session, lead_id, public_id)
     if not profile_text:
         logger.warning("No profile text for lead %d \u2014 disqualifying", lead_id)
         _save_qualification_result(session, qualifier, lead_id, public_id, embedding, 0, "no profile text available")
+        return public_id
+
+    if is_competitor_or_peer_risk(public_id, profile_text):
+        logger.info("%s disqualified by deterministic competitor/peer safety check", public_id)
+        _save_qualification_result(
+            session,
+            qualifier,
+            lead_id,
+            public_id,
+            embedding,
+            0,
+            "competitor/peer vendor (deterministic safety)",
+        )
         return public_id
 
     campaign = session.campaign

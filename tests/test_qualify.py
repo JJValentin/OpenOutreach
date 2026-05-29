@@ -67,6 +67,26 @@ class TestQualifyAutoDecisions:
             run_qualification(session, qualifier)
             mock_llm.assert_called_once()
 
+    def test_competitor_safety_skips_llm(self, db):
+        qualifier = _make_trained_qualifier()
+        session = MagicMock()
+        _create_lead_with_embedding(1, "yaakov-oranski")
+
+        with (
+            patch("linkedin.db.leads.get_leads_for_qualification", return_value=_fake_leads(public_id="yaakov-oranski")),
+            patch("linkedin.pipeline.qualify._fetch_profile_text", return_value="Founder at Yotomations, AI-powered automation and n8n workflow automation for SMBs"),
+            patch("linkedin.ml.qualifier.qualify_with_llm") as mock_llm,
+            patch.object(qualifier, "update"),
+            patch("linkedin.db.deals.create_disqualified_deal") as mock_disqualify,
+        ):
+            run_qualification(session, qualifier)
+            mock_llm.assert_not_called()
+            mock_disqualify.assert_called_once_with(
+                session,
+                "yaakov-oranski",
+                reason="competitor/peer vendor (deterministic safety)",
+            )
+
     def test_disqualify_on_promote_failure(self, db):
         qualifier = _make_trained_qualifier()
         session = MagicMock()
